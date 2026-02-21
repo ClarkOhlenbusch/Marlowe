@@ -3,7 +3,7 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 
 const baseUrl = process.env.BASE_URL || 'http://127.0.0.1:3000'
-const webhookSecret = process.env.VAPI_WEBHOOK_SECRET || ''
+const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID || 'AC_TEST_ACCOUNT'
 
 function invariant(condition, message) {
   if (!condition) {
@@ -27,22 +27,24 @@ async function readJson(response, context) {
   }
 }
 
-async function postWebhook(payload) {
-  const headers = {
-    'Content-Type': 'application/json',
-  }
+async function postWebhook(slug, payload) {
+  const params = new URLSearchParams()
 
-  if (webhookSecret) {
-    headers['x-vapi-secret'] = webhookSecret
-  }
-
-  const response = await fetch(`${baseUrl}/api/vapi/webhook`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload),
+  Object.entries(payload).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      params.set(key, String(value))
+    }
   })
 
-  const data = await readJson(response, '/api/vapi/webhook')
+  const response = await fetch(`${baseUrl}/api/twilio/webhook?slug=${encodeURIComponent(slug)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params.toString(),
+  })
+
+  const data = await readJson(response, '/api/twilio/webhook')
   invariant(response.ok && data.ok, `Webhook rejected (${response.status}): ${JSON.stringify(data)}`)
 }
 
@@ -78,38 +80,49 @@ async function main() {
   const phoneSavePayload = await readJson(phoneSaveResponse, '/api/tenant/phone')
   invariant(phoneSaveResponse.ok && phoneSavePayload.ok, `Phone setup failed: ${JSON.stringify(phoneSavePayload)}`)
 
-  const callId = `mock-${Date.now()}`
+  const callId = `CA${Date.now()}`
 
-  await postWebhook({
-    type: 'status-update',
-    call: {
-      id: callId,
-      status: 'in-progress',
-      metadata: { slug },
-    },
+  await postWebhook(slug, {
+    AccountSid: twilioAccountSid,
+    CallSid: callId,
+    CallStatus: 'in-progress',
   })
 
-  await postWebhook({
-    metadata: { slug },
-    message: {
-      type: 'transcript',
-      callId,
-      transcriptType: 'final',
-      role: 'other',
-      transcript:
-        'This is urgent. You must buy gift cards now or your account will be frozen. Share your OTP code immediately.',
-    },
+  await postWebhook(slug, {
+    AccountSid: twilioAccountSid,
+    CallSid: callId,
+    TranscriptionSid: `TR-${callId}-1`,
+    SequenceId: '1',
+    TranscriptionEvent: 'transcription-content',
+    TranscriptionText: 'This is urgent and you must buy gift cards now. Share your OTP code immediately.',
+    Track: 'outbound_track',
+    IsFinal: 'false',
+    Timestamp: String(Date.now()),
   })
 
-  await postWebhook({
-    metadata: { slug },
-    message: {
-      type: 'transcript',
-      callId,
-      transcriptType: 'final',
-      role: 'caller',
-      transcript: 'I will call your official number directly before doing anything.',
-    },
+  await postWebhook(slug, {
+    AccountSid: twilioAccountSid,
+    CallSid: callId,
+    TranscriptionSid: `TR-${callId}-1`,
+    SequenceId: '1',
+    TranscriptionEvent: 'transcription-content-final',
+    TranscriptionText:
+      'This is urgent and you must buy gift cards now or your account will be frozen. Share your OTP code immediately.',
+    Track: 'outbound_track',
+    IsFinal: 'true',
+    Timestamp: String(Date.now() + 250),
+  })
+
+  await postWebhook(slug, {
+    AccountSid: twilioAccountSid,
+    CallSid: callId,
+    TranscriptionSid: `TR-${callId}-2`,
+    SequenceId: '2',
+    TranscriptionEvent: 'transcription-content-final',
+    TranscriptionText: 'I will call your official number directly before doing anything.',
+    Track: 'inbound_track',
+    IsFinal: 'true',
+    Timestamp: String(Date.now() + 500),
   })
 
   let livePayload = null
@@ -139,13 +152,10 @@ async function main() {
 
   invariant(livePayload, 'Timed out waiting for live advice update')
 
-  await postWebhook({
-    type: 'status-update',
-    call: {
-      id: callId,
-      status: 'ended',
-      metadata: { slug },
-    },
+  await postWebhook(slug, {
+    AccountSid: twilioAccountSid,
+    CallSid: callId,
+    CallStatus: 'completed',
   })
 
   const endedResponse = await fetch(

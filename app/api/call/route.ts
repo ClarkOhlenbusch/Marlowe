@@ -2,42 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { isValidE164 } from '@/lib/phone'
 import { getClientIp, takeCooldown, takeRateLimit } from '@/lib/rate-limit'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { createCallSession, setAssistantMuted } from '@/lib/live-call-session'
-import { muteAssistantByControlUrl } from '@/lib/vapi-control'
+import { upsertLiveCallSession } from '@/lib/live-store'
+import { createOutboundTwilioCall, getTwilioConfig } from '@/lib/twilio-api'
 
-function wait(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-async function fetchControlUrlFromCall(callId: string, vapiKey: string): Promise<string | null> {
-  const response = await fetch(`https://api.vapi.ai/call/${encodeURIComponent(callId)}`, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${vapiKey}`,
-      'Content-Type': 'application/json',
-    },
-    signal: AbortSignal.timeout(6_000),
-  })
-
-  if (!response.ok) return null
-
-  const payload = await response.json().catch(() => null)
-  return typeof payload?.monitor?.controlUrl === 'string' ? payload.monitor.controlUrl : null
-}
-
-async function waitForControlUrl(callId: string, vapiKey: string): Promise<string | null> {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const controlUrl = await fetchControlUrlFromCall(callId, vapiKey)
-
-    if (controlUrl) {
-      return controlUrl
-    }
-
-    await wait(250)
-  }
-
-  return null
-}
+export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   try {
@@ -91,95 +59,49 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const vapiKey = process.env.VAPI_PRIVATE_KEY
-    const assistantId = process.env.VAPI_ASSISTANT_ID
-    const phoneNumberId = process.env.VAPI_PHONE_NUMBER_ID
+    const twilioConfig = getTwilioConfig()
 
-    if (!vapiKey || !assistantId || !phoneNumberId) {
+    if (!twilioConfig || !isValidE164(twilioConfig.phoneNumber)) {
       return NextResponse.json(
         { ok: false, error: 'Server configuration error. Contact support.' },
         { status: 500 }
       )
     }
 
-    const serverUrl = new URL('/api/vapi/webhook', request.url).toString()
-    const webhookSecret = process.env.VAPI_WEBHOOK_SECRET
+    const twimlUrl = new URL('/api/twilio/twiml', request.url)
+    twimlUrl.searchParams.set('slug', slug)
 
-    const vapiResponse = await fetch('https://api.vapi.ai/call', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${vapiKey}`,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(15_000),
-      body: JSON.stringify({
-        assistantId,
-        phoneNumberId,
-        customer: { number: phoneNumber },
-        assistantOverrides: {
-          firstMessageMode: 'assistant-waits-for-user',
-          firstMessage: '',
-          startSpeakingPlan: {
-            waitSeconds: 5,
-          },
-          monitorPlan: {
-            controlEnabled: true,
-            listenEnabled: true,
-          },
-          server: {
-            url: serverUrl,
-            ...(webhookSecret
-              ? {
-                  headers: {
-                    'x-vapi-secret': webhookSecret,
-                  },
-                }
-              : {}),
-          },
-          metadata: {
-            slug,
-          },
-        },
-      }),
-    })
+    const webhookUrl = new URL('/api/twilio/webhook', request.url)
+    webhookUrl.searchParams.set('slug', slug)
 
-    if (!vapiResponse.ok) {
-      const errorData = await vapiResponse.json().catch(() => null)
-      const errorMessage =
-        errorData?.message || errorData?.error || `Vapi returned status ${vapiResponse.status}`
+    let callId = ''
+    let callStatus = 'queued'
+
+    try {
+      const createdCall = await createOutboundTwilioCall({
+        to: phoneNumber,
+        twimlUrl: twimlUrl.toString(),
+        statusCallbackUrl: webhookUrl.toString(),
+      })
+
+      callId = createdCall.sid
+      callStatus = createdCall.status
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Failed to place monitor call through Twilio.'
       return NextResponse.json(
-        { ok: false, error: errorMessage },
-        { status: vapiResponse.status }
-      )
-    }
-
-    const data = await vapiResponse.json()
-    const callId = typeof data?.id === 'string' ? data.id : null
-    const callStatus = typeof data?.status === 'string' ? data.status : 'queued'
-
-    if (!callId) {
-      return NextResponse.json(
-        { ok: false, error: 'Call was created but no call ID was returned.' },
+        { ok: false, error: message },
         { status: 502 }
       )
     }
 
-    createCallSession({
-      callId,
+    await upsertLiveCallSession({
+      callSid: callId,
       slug,
       status: callStatus,
     })
-
-    const immediateControlUrl =
-      typeof data?.monitor?.controlUrl === 'string' ? data.monitor.controlUrl : null
-    const monitorControlUrl = immediateControlUrl ?? (await waitForControlUrl(callId, vapiKey))
-
-    if (monitorControlUrl) {
-      const muted = await muteAssistantByControlUrl(monitorControlUrl, vapiKey).catch(() => false)
-      if (muted) {
-        setAssistantMuted(callId, true)
-      }
-    }
 
     return NextResponse.json({
       ok: true,

@@ -8,7 +8,7 @@ We chose this project because AI-enabled scams amplify already widespread, under
 This weekend, we built a working prototype of **The Scam Detective Hotline**: users can enter their phone number, tap **Open a Case**, and receive an instant AI callback for a **live** second opinion. We also developed and tested the core user flow and voice/scam test scenarios.
 
 ## Team
-- [Clark Ohlenbusch](https://www.linkedin.com/in/clark-ohlenbusch-bb8b60253/) - Lead Developer (Implemented the hotline backend and voice-call orchestration with VAPI/Twilio to deliver rapid scam second-opinion callbacks)
+- [Clark Ohlenbusch](https://www.linkedin.com/in/clark-ohlenbusch-bb8b60253/) - Lead Developer (Implemented the hotline backend and Twilio call orchestration to deliver rapid scam second-opinion callbacks)
 - [Michael Marrero](https://www.linkedin.com/in/michael-marreroii/) - Product Development / Engineer (Built the deepfake simulation pipeline for testing and led product positioning/business planning for real-world adoption)
 - [Julie Hohenberg](https://www.linkedin.com/in/juliehohenberg/) - Data Science & Research (Created scam test cases and voice-validation inputs, and conducted market/user research focused on vulnerable-target scam scenarios)
 
@@ -19,14 +19,15 @@ This project was built with a hybrid workflow:
 - AI-assisted iteration using **Codex**, **Claude Code**, **Gemini CLI**, and **Kiro CLI**
 - Deployed on **Vercel**
 - **Supabase** used for backend services/infrastructure
-- **Vapi (Voice API)** used for voice agent orchestration and call initiation
-- **Twilio** used for number provisioning to the voice agent
+- **Twilio** used for outbound monitor calls and live call transcription callbacks
+- **Groq** used for real-time coaching analysis on transcript chunks
 
 ## Tech Stack
 - **Framework:** Next.js 16 (App Router), React 19, TypeScript
 - **UI:** Tailwind CSS v4, Radix UI primitives, shadcn-style component architecture
 - **Backend/API:** Next.js Route Handlers (`app/api/call/route.ts`)
-- **Voice/Calling:** Vapi (voice agent orchestration + call initiation), Twilio (number provisioning)
+- **Voice/Calling:** Twilio (call initiation + live transcription webhooks)
+- **LLM Coaching:** Groq Chat Completions API
 - **Infra:** Vercel deployment + Supabase backend services
 
 ## Features
@@ -47,6 +48,14 @@ pnpm dev
 ```
 Open `http://localhost:3000`.
 
+### Database migration
+Run SQL migrations in your Supabase/Postgres database:
+
+```bash
+psql "$POSTGRES_URL_NON_POOLING" -f scripts/001_create_tenants.sql
+psql "$POSTGRES_URL_NON_POOLING" -f scripts/003_live_call_tables.sql
+```
+
 ### Production build
 ```bash
 pnpm build
@@ -58,21 +67,26 @@ pnpm start
 pnpm lint
 ```
 
+### Mock sanity flow
+```bash
+pnpm test:mock
+```
+
 ## Environment Variables
 Create `.env.local` with at least:
 
 ```bash
-VAPI_PRIVATE_KEY=...
-VAPI_ASSISTANT_ID=...
-VAPI_PHONE_NUMBER_ID=...
+TWILIO_ACCOUNT_SID=...
+TWILIO_AUTH_TOKEN=...
+TWILIO_PHONE_NUMBER=...
 GROQ_API_KEY=...
 ```
 
 Optional hardening:
 
 ```bash
-VAPI_WEBHOOK_SECRET=...
 GROQ_MODEL=llama-3.3-70b-versatile
+TWILIO_WEBHOOK_SKIP_SIGNATURE_VALIDATION=0
 ```
 
 Supabase-related variables may also be required for backend features (for example `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and service credentials) depending on your environment.

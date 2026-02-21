@@ -70,8 +70,10 @@ export function normalizeSessionStatus(rawStatus: string | undefined | null): Se
 
   const normalized = rawStatus.toLowerCase()
 
+  if (normalized.includes('initiat')) return 'queued'
   if (normalized.includes('queued')) return 'queued'
   if (normalized.includes('ring')) return 'ringing'
+  if (normalized.includes('answer')) return 'in-progress'
   if (normalized.includes('in-progress') || normalized.includes('in progress') || normalized === 'active') {
     return 'in-progress'
   }

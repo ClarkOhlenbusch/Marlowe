@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test:mock": "node scripts/mock-live-flow.mjs"
+    "test:mock": "TWILIO_WEBHOOK_SKIP_SIGNATURE_VALIDATION=1 node scripts/mock-live-flow.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
