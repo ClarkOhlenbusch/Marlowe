@@ -1,34 +1,17 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { maskPhone } from '@/lib/phone'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Phone, Loader2, CheckCircle2, AlertTriangle, RotateCcw } from 'lucide-react'
 import Link from 'next/link'
 
 type CallState = 'idle' | 'dialing' | 'success' | 'error'
 
-export function CasePanel() {
-  const router = useRouter()
-  const [phoneNumber, setPhoneNumber] = useState<string | null>(null)
+export function CasePanel({ slug, maskedPhone }: { slug: string; maskedPhone: string }) {
   const [callState, setCallState] = useState<CallState>('idle')
   const [caseNote, setCaseNote] = useState('')
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-    const stored = localStorage.getItem('detective-phone')
-    if (!stored) {
-      router.push('/setup')
-      return
-    }
-    setPhoneNumber(stored)
-  }, [router])
 
   async function handleCall() {
-    if (!phoneNumber) return
-
     setCallState('dialing')
     setCaseNote('Dialing...')
 
@@ -36,7 +19,7 @@ export function CasePanel() {
       const res = await fetch('/api/call', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phoneNumber }),
+        body: JSON.stringify({ slug }),
       })
 
       const data = await res.json()
@@ -54,14 +37,6 @@ export function CasePanel() {
     }
   }
 
-  if (!mounted || !phoneNumber) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
   return (
     <div className="flex w-full max-w-sm flex-col items-center gap-8">
       {/* Masked number display */}
@@ -69,7 +44,7 @@ export function CasePanel() {
         <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
           Agent on file
         </p>
-        <p className="font-mono text-lg text-foreground">{maskPhone(phoneNumber)}</p>
+        <p className="font-mono text-lg text-foreground">{maskedPhone}</p>
       </div>
 
       {/* Primary action */}
@@ -156,7 +131,7 @@ export function CasePanel() {
 
       {/* Change number link */}
       <Link
-        href="/setup"
+        href={`/t/${slug}/setup`}
         className="font-mono text-xs uppercase tracking-widest text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
       >
         Change number

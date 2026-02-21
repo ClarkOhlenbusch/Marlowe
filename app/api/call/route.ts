@@ -1,21 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { isValidE164 } from '@/lib/phone'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { phoneNumber } = body
+    const { slug } = body
 
-    if (!phoneNumber || typeof phoneNumber !== 'string') {
+    if (!slug || typeof slug !== 'string') {
       return NextResponse.json(
-        { ok: false, error: 'Phone number is required.' },
+        { ok: false, error: 'Tenant slug is required.' },
         { status: 400 }
       )
     }
 
-    if (!isValidE164(phoneNumber)) {
+    // Look up phone number from the tenant record
+    const supabase = createAdminClient()
+    const { data: tenant, error: dbError } = await supabase
+      .from('tenants')
+      .select('phone_number')
+      .eq('slug', slug)
+      .single()
+
+    if (dbError || !tenant) {
       return NextResponse.json(
-        { ok: false, error: 'Invalid phone number format. Use E.164 format (e.g. +14155552671).' },
+        { ok: false, error: 'Tenant not found.' },
+        { status: 404 }
+      )
+    }
+
+    const phoneNumber = tenant.phone_number
+
+    if (!phoneNumber || !isValidE164(phoneNumber)) {
+      return NextResponse.json(
+        { ok: false, error: 'No valid phone number on file. Please set one up first.' },
         { status: 400 }
       )
     }

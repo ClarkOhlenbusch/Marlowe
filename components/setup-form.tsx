@@ -6,13 +6,15 @@ import { normalizePhone } from '@/lib/phone'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Loader2 } from 'lucide-react'
 
-export function SetupForm() {
+export function SetupForm({ slug }: { slug: string }) {
   const router = useRouter()
   const [phone, setPhone] = useState('')
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  function handleSave() {
+  async function handleSave() {
     setError('')
     const result = normalizePhone(phone)
 
@@ -21,8 +23,28 @@ export function SetupForm() {
       return
     }
 
-    localStorage.setItem('detective-phone', result.number)
-    router.push('/')
+    setSaving(true)
+
+    try {
+      const res = await fetch('/api/tenant/phone', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug, phoneNumber: result.number }),
+      })
+
+      const data = await res.json()
+
+      if (!data.ok) {
+        setError(data.error || 'Failed to save. Please try again.')
+        setSaving(false)
+        return
+      }
+
+      router.push(`/t/${slug}`)
+    } catch {
+      setError('Connection failed. Check your network and try again.')
+      setSaving(false)
+    }
   }
 
   return (
@@ -63,9 +85,17 @@ export function SetupForm() {
       <Button
         type="submit"
         size="lg"
+        disabled={saving}
         className="h-12 bg-primary font-mono text-sm font-semibold uppercase tracking-widest text-primary-foreground hover:bg-primary/90"
       >
-        Save Number
+        {saving ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            Saving...
+          </>
+        ) : (
+          'Save Number'
+        )}
       </Button>
     </form>
   )
