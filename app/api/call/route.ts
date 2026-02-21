@@ -24,12 +24,6 @@ export async function POST(request: NextRequest) {
     const assistantId = process.env.VAPI_ASSISTANT_ID
     const phoneNumberId = process.env.VAPI_PHONE_NUMBER_ID
 
-    console.log('[v0] ENV check:', {
-      hasVapiKey: !!vapiKey,
-      hasAssistantId: !!assistantId,
-      hasPhoneNumberId: !!phoneNumberId,
-    })
-
     if (!vapiKey || !assistantId || !phoneNumberId) {
       return NextResponse.json(
         { ok: false, error: 'Server configuration error. Contact support.' },
