@@ -3,9 +3,9 @@
 A hackathon project that helps people pause before they get scammed. Users submit their phone number, tap **Open a Case**, and receive a callback from an AI detective assistant for a fast second opinion.
 
 ## Team
-- Clark Ohlenbusch
-- Michael Marrero
-- Julie Hohenberg
+- [Clark Ohlenbusch](https://www.linkedin.com/in/clark-ohlenbusch-bb8b60253/) - Backend development and VAPI configuration/integration
+- [Michael Marrero](https://www.linkedin.com/in/michael-marreroii/) - Deepfake pipeline setup & business plan development
+- [Julie Hohenberg](https://www.linkedin.com/in/juliehohenberg/) - Deepfake voice data/test scenario preparation & market research
 
 ## Hackathon Build Notes
 This project was built with a hybrid workflow:
@@ -77,5 +77,12 @@ public/              # static assets
 ## Deployment
 This project is configured for Vercel deployment. Push to your Git provider and import the repo in Vercel, then add required environment variables in project settings.
 
+## Reflection
+We chose this project because AI-enabled scams amplify already widespread, underreported extortion and impersonation fraud: the FBI’s IC3 reported 39,416 extortion victims with about $54.3M in losses in 2022, and 14,190 government impersonation scam victims with over $394M in losses in 2023, with older adults disproportionately harmed ([FBI ICR](https://www.ic3.gov/AnnualReport/Reports/2022_ic3report.pdf), [FBI](https://www.fbi.gov/contact-us/field-offices/portland/news/fbi-warns-public-to-beware-of-scammers-impersonating-fbi-agents-and-other-government-officials)). Our main challenge was designing something people could realistically use during a high-stress scam call, so we focused on a simple, fast user flow. We also attended Lucas Maley’s PM workshop, which helped us think more clearly about product design and feature prioritization.
+
 ## License
-Hackathon prototype. Add a license before production use.
+This project was created as a hackathon prototype and is provided for demonstration purposes only.
+
+No license is granted at this time. You may not use, copy, modify, or distribute this code without permission from the authors.
+
+A production license may be added in the future.
