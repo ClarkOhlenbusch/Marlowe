@@ -12,6 +12,7 @@ import {
   ShieldQuestion,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { createClient } from '@/lib/supabase/client'
 
 type PanelState = 'idle' | 'starting' | 'live' | 'ended' | 'error'
 type RiskLevel = 'low' | 'medium' | 'high'
@@ -47,6 +48,9 @@ type LiveSessionPayload = {
 }
 
 const STORAGE_KEY_PREFIX = 'live-call:'
+const MAX_TRANSCRIPT_LINES = 40
+const FALLBACK_POLL_INTERVAL_MS = 6_000
+const RECONNECT_NOTE = 'Live updates paused. Reconnecting...'
 
 function createDefaultAdvice(): LiveAdvice {
   return {
@@ -104,6 +108,62 @@ function formatTime(timestamp: number | null): string {
   })
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function parseTimestampMs(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value > 1_000_000_000_000) return Math.round(value)
+    if (value > 1_000_000_000) return Math.round(value * 1000)
+  }
+
+  if (typeof value === 'string') {
+    const asNumber = Number(value)
+    if (Number.isFinite(asNumber)) {
+      if (asNumber > 1_000_000_000_000) return Math.round(asNumber)
+      if (asNumber > 1_000_000_000) return Math.round(asNumber * 1000)
+    }
+
+    const asDate = Date.parse(value)
+    if (Number.isFinite(asDate)) {
+      return asDate
+    }
+  }
+
+  return Date.now()
+}
+
+function toSpeaker(value: unknown): TranscriptLine['speaker'] {
+  if (typeof value !== 'string') return 'unknown'
+  const normalized = value.toLowerCase()
+  if (normalized === 'caller') return 'caller'
+  if (normalized === 'other') return 'other'
+  if (normalized === 'assistant') return 'assistant'
+  return 'unknown'
+}
+
+function mergeTranscriptLine(lines: TranscriptLine[], nextLine: TranscriptLine): TranscriptLine[] {
+  const merged = [...lines.filter((line) => line.id !== nextLine.id), nextLine]
+
+  merged.sort((a, b) => {
+    if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp
+
+    const aNum = Number(a.id)
+    const bNum = Number(b.id)
+
+    if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+      return aNum - bNum
+    }
+
+    return a.id.localeCompare(b.id)
+  })
+
+  if (merged.length <= MAX_TRANSCRIPT_LINES) return merged
+  return merged.slice(-MAX_TRANSCRIPT_LINES)
+}
+
 export function CasePanel({ slug, maskedPhone }: { slug: string; maskedPhone: string }) {
   const [panelState, setPanelState] = useState<PanelState>('idle')
   const [callId, setCallId] = useState<string | null>(null)
@@ -117,6 +177,7 @@ export function CasePanel({ slug, maskedPhone }: { slug: string; maskedPhone: st
   const [transcript, setTranscript] = useState<TranscriptLine[]>([])
 
   const storageKey = `${STORAGE_KEY_PREFIX}${slug}`
+  const supabase = useMemo(() => createClient(), [])
 
   useEffect(() => {
     const existingCallId = window.sessionStorage.getItem(storageKey)
@@ -136,6 +197,92 @@ export function CasePanel({ slug, maskedPhone }: { slug: string; maskedPhone: st
 
     let cancelled = false
     let inFlight = false
+    let realtimeSubscribed = false
+
+    function applySessionPayload(data: LiveSessionPayload) {
+      if (typeof data.status === 'string') {
+        setCallStatus(data.status)
+        if (isTerminalStatus(data.status)) {
+          setPanelState('ended')
+          window.sessionStorage.removeItem(storageKey)
+        } else {
+          setPanelState('live')
+        }
+      }
+
+      setAssistantMuted(Boolean(data.assistantMuted))
+      setAnalyzing(Boolean(data.analyzing))
+
+      if (typeof data.updatedAt === 'number') {
+        setLastUpdated(data.updatedAt)
+      }
+
+      if (data.advice) {
+        setAdvice(data.advice)
+      }
+
+      if (Array.isArray(data.transcript)) {
+        setTranscript(data.transcript.slice(-MAX_TRANSCRIPT_LINES))
+      }
+
+      if (data.lastError) {
+        setCaseNote(data.lastError)
+      }
+    }
+
+    function applyLiveCallRow(row: Record<string, unknown>) {
+      if (typeof row.status === 'string') {
+        setCallStatus(row.status)
+        if (isTerminalStatus(row.status)) {
+          setPanelState('ended')
+          window.sessionStorage.removeItem(storageKey)
+        } else {
+          setPanelState('live')
+        }
+      }
+
+      if (typeof row.assistant_muted === 'boolean') {
+        setAssistantMuted(row.assistant_muted)
+      }
+
+      if (typeof row.analyzing === 'boolean') {
+        setAnalyzing(row.analyzing)
+      }
+
+      if (typeof row.updated_at === 'string') {
+        const updatedAt = Date.parse(row.updated_at)
+        if (Number.isFinite(updatedAt)) {
+          setLastUpdated(updatedAt)
+        }
+      }
+
+      const advicePayload = asRecord(row.advice)
+      if (advicePayload) {
+        setAdvice(advicePayload as LiveAdvice)
+      }
+
+      if (typeof row.last_error === 'string' && row.last_error.trim()) {
+        setCaseNote(row.last_error)
+      }
+    }
+
+    function applyTranscriptRow(row: Record<string, unknown>) {
+      const rawId = row.id
+      const text = row.text
+
+      if ((typeof rawId !== 'number' && typeof rawId !== 'string') || typeof text !== 'string' || !text.trim()) {
+        return
+      }
+
+      const line: TranscriptLine = {
+        id: String(rawId),
+        speaker: toSpeaker(row.speaker),
+        text: text.trim(),
+        timestamp: parseTimestampMs(row.timestamp_ms),
+      }
+
+      setTranscript((previous) => mergeTranscriptLine(previous, line))
+    }
 
     async function pollLiveSession() {
       if (cancelled || inFlight) return
@@ -162,53 +309,77 @@ export function CasePanel({ slug, maskedPhone }: { slug: string; maskedPhone: st
           return
         }
 
-        if (typeof data.status === 'string') {
-          setCallStatus(data.status)
-          if (isTerminalStatus(data.status)) {
-            setPanelState('ended')
-            window.sessionStorage.removeItem(storageKey)
-          } else {
-            setPanelState('live')
-          }
-        }
-
-        setAssistantMuted(Boolean(data.assistantMuted))
-        setAnalyzing(Boolean(data.analyzing))
-
-        if (typeof data.updatedAt === 'number') {
-          setLastUpdated(data.updatedAt)
-        }
-
-        if (data.advice) {
-          setAdvice(data.advice)
-        }
-
-        if (Array.isArray(data.transcript)) {
-          setTranscript(data.transcript)
-        }
-
-        if (data.lastError) {
-          setCaseNote(data.lastError)
-        }
+        applySessionPayload(data)
       } catch {
         if (!cancelled) {
-          setCaseNote('Live updates paused. Reconnecting...')
+          setCaseNote(RECONNECT_NOTE)
         }
       } finally {
         inFlight = false
       }
     }
 
+    const channel = supabase
+      .channel(`live:${slug}:${activeCallId}:${Date.now()}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'live_calls',
+          filter: `call_sid=eq.${activeCallId}`,
+        },
+        (payload) => {
+          const row = asRecord(payload.new)
+          if (!row) return
+
+          realtimeSubscribed = true
+          applyLiveCallRow(row)
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'live_transcript_chunks',
+          filter: `call_sid=eq.${activeCallId}`,
+        },
+        (payload) => {
+          const row = asRecord(payload.new)
+          if (!row) return
+
+          realtimeSubscribed = true
+          applyTranscriptRow(row)
+        },
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          realtimeSubscribed = true
+          setCaseNote((previous) => (previous === RECONNECT_NOTE ? '' : previous))
+          return
+        }
+
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          realtimeSubscribed = false
+        }
+      })
+
     void pollLiveSession()
-    const timer = window.setInterval(() => {
-      void pollLiveSession()
-    }, 1200)
+
+    const fallbackTimer = window.setInterval(() => {
+      if (!realtimeSubscribed) {
+        void pollLiveSession()
+      }
+    }, FALLBACK_POLL_INTERVAL_MS)
 
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      realtimeSubscribed = false
+      window.clearInterval(fallbackTimer)
+      void supabase.removeChannel(channel)
     }
-  }, [callId, slug, storageKey])
+  }, [callId, slug, storageKey, supabase])
 
   const riskTheme = useMemo(() => {
     if (advice.riskLevel === 'high') {

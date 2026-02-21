@@ -165,16 +165,24 @@ export async function setLiveCallAnalyzing(callSid: string, analyzing: boolean) 
   }
 }
 
-export async function setLiveCallAdvice(callSid: string, advice: CoachingAdvice, lastError: string | null = null) {
+export async function setLiveCallAdvice(
+  callSid: string,
+  advice: CoachingAdvice,
+  options: {
+    lastError?: string | null
+    analyzing?: boolean
+  } = {},
+) {
   const supabase = createAdminClient()
   const nowIso = new Date().toISOString()
+  const { lastError = null, analyzing = false } = options
 
   const { error } = await supabase
     .from('live_calls')
     .update({
       advice,
       last_error: lastError,
-      analyzing: false,
+      analyzing,
       last_advice_at: nowIso,
       updated_at: nowIso,
     })

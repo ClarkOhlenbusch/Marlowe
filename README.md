@@ -54,7 +54,10 @@ Run SQL migrations in your Supabase/Postgres database:
 ```bash
 psql "$POSTGRES_URL_NON_POOLING" -f scripts/001_create_tenants.sql
 psql "$POSTGRES_URL_NON_POOLING" -f scripts/003_live_call_tables.sql
+psql "$POSTGRES_URL_NON_POOLING" -f scripts/004_enable_realtime_live_tables.sql
 ```
+
+`scripts/004_enable_realtime_live_tables.sql` enables Supabase Realtime publication and demo-friendly read policies for live call streaming tables.
 
 ### Production build
 ```bash
