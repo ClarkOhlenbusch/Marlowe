@@ -3,9 +3,9 @@
 A hackathon project that helps people pause before they get scammed. Users submit their phone number, tap **Open a Case**, and receive a callback from an AI detective assistant for a fast second opinion.
 
 ## Team
-- [Clark Ohlenbusch](https://www.linkedin.com/in/clark-ohlenbusch-bb8b60253/) - Backend development and VAPI configuration/integration
-- [Michael Marrero](https://www.linkedin.com/in/michael-marreroii/) - Deepfake pipeline setup & business plan development
-- [Julie Hohenberg](https://www.linkedin.com/in/juliehohenberg/) - Deepfake voice data/test scenario preparation & market research
+- [Clark Ohlenbusch](https://www.linkedin.com/in/clark-ohlenbusch-bb8b60253/) - Lead Developer (Implemented the hotline backend and voice-call orchestration with VAPI/Twilio to deliver rapid scam second-opinion callbacks)
+- [Michael Marrero](https://www.linkedin.com/in/michael-marreroii/) - Product Development / Engineer (Built the deepfake simulation pipeline for testing and led product positioning/business planning for real-world adoption)
+- [Julie Hohenberg](https://www.linkedin.com/in/juliehohenberg/) - Data Science & Research (Created scam test cases and voice-validation inputs, and conducted market/user research focused on vulnerable-target scam scenarios)
 
 ## Hackathon Build Notes
 This project was built with a hybrid workflow:
