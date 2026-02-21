@@ -49,6 +49,24 @@ const RISK_SYSTEM_PROMPT = [
   '}',
 ].join('\n')
 
+export class ModelAdviceError extends Error {
+  statusCode: number | null
+  retryAfterMs: number | null
+
+  constructor(
+    message: string,
+    params?: {
+      statusCode?: number | null
+      retryAfterMs?: number | null
+    },
+  ) {
+    super(message)
+    this.name = 'ModelAdviceError'
+    this.statusCode = params?.statusCode ?? null
+    this.retryAfterMs = params?.retryAfterMs ?? null
+  }
+}
+
 function getRecentTranscript(transcript: TranscriptChunk[], maxEntries = 40): TranscriptChunk[] {
   if (transcript.length <= maxEntries) return transcript
   return transcript.slice(-maxEntries)
@@ -87,7 +105,25 @@ function parseJsonObject(text: string): unknown {
   throw new Error('No JSON object found in model response')
 }
 
-function buildFallbackAdvice(transcript: TranscriptChunk[], previousAdvice?: CoachingAdvice): CoachingAdvice {
+function parseRetryAfterMs(headerValue: string | null): number | null {
+  if (!headerValue) {
+    return null
+  }
+
+  const asSeconds = Number(headerValue)
+  if (Number.isFinite(asSeconds) && asSeconds >= 0) {
+    return Math.round(asSeconds * 1000)
+  }
+
+  const asDate = Date.parse(headerValue)
+  if (!Number.isNaN(asDate)) {
+    return Math.max(0, asDate - Date.now())
+  }
+
+  return null
+}
+
+function buildHeuristicAdvice(transcript: TranscriptChunk[], previousAdvice?: CoachingAdvice): CoachingAdvice {
   const base = previousAdvice ?? createDefaultAdvice()
   const combined = transcript
     .slice(-10)
@@ -167,10 +203,10 @@ function sanitizeAdvice(parsed: z.infer<typeof parsedAdviceSchema>): CoachingAdv
   }
 }
 
-export async function generateLiveAdvice(params: {
+export function generateHeuristicAdvice(params: {
   transcript: TranscriptChunk[]
   previousAdvice?: CoachingAdvice
-}): Promise<CoachingAdvice> {
+}): CoachingAdvice {
   const { transcript, previousAdvice } = params
   const recentTranscript = getRecentTranscript(transcript)
 
@@ -178,11 +214,24 @@ export async function generateLiveAdvice(params: {
     return previousAdvice ?? createDefaultAdvice()
   }
 
+  return buildHeuristicAdvice(recentTranscript, previousAdvice)
+}
+
+export async function generateModelAdvice(params: {
+  transcript: TranscriptChunk[]
+}): Promise<CoachingAdvice | null> {
+  const { transcript } = params
+  const recentTranscript = getRecentTranscript(transcript)
+
+  if (recentTranscript.length === 0) {
+    return null
+  }
+
   const groqApiKey = process.env.GROQ_API_KEY
-  const model = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+  const model = process.env.GROQ_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'
 
   if (!groqApiKey) {
-    return buildFallbackAdvice(recentTranscript, previousAdvice)
+    return null
   }
 
   const transcriptBlock = formatTranscriptForModel(recentTranscript)
@@ -198,7 +247,7 @@ export async function generateLiveAdvice(params: {
       body: JSON.stringify({
         model,
         temperature: 0.2,
-        max_tokens: 300,
+        max_tokens: 220,
         messages: [
           {
             role: 'system',
@@ -218,7 +267,10 @@ export async function generateLiveAdvice(params: {
     })
 
     if (!response.ok) {
-      throw new Error(`Groq request failed with status ${response.status}`)
+      throw new ModelAdviceError(`Groq request failed with status ${response.status}`, {
+        statusCode: response.status,
+        retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after')),
+      })
     }
 
     const payload = await response.json()
@@ -232,7 +284,28 @@ export async function generateLiveAdvice(params: {
     const parsed = parsedAdviceSchema.parse(rawJson)
 
     return sanitizeAdvice(parsed)
+  } catch (error) {
+    if (error instanceof Error && error.message) {
+      throw error
+    }
+
+    throw new Error('Groq advice generation failed')
+  }
+}
+
+export async function generateLiveAdvice(params: {
+  transcript: TranscriptChunk[]
+  previousAdvice?: CoachingAdvice
+}): Promise<CoachingAdvice> {
+  const heuristic = generateHeuristicAdvice(params)
+
+  try {
+    const modelAdvice = await generateModelAdvice({
+      transcript: params.transcript,
+    })
+
+    return modelAdvice ?? heuristic
   } catch {
-    return buildFallbackAdvice(recentTranscript, previousAdvice)
+    return heuristic
   }
 }
