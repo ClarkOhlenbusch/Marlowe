@@ -415,8 +415,17 @@ export function CasePanel({
   const transcript = useMemo(() => compactTranscriptForDisplay(rawTranscript), [rawTranscript])
   const showProtectedNumberCard =
     panelState === 'idle' || panelState === 'starting' || (panelState === 'live' && !callConnected)
-  const showPreConnectStatusCard = panelState === 'ended' || !callConnected
   const panelHeading = tenantName?.trim() || BRAND_CASE_NAME
+  const liveStatusLabel = panelState === 'ended' ? 'Call ended' : formatStatusLabel(callStatus)
+  const liveStatusDetail =
+    panelState === 'ended'
+      ? 'Silent monitor session ended.'
+      : callConnected
+        ? analyzing
+          ? 'Reading the latest part of the call.'
+          : 'Silent mode: On. Live coaching is active.'
+        : `Silent mode: ${assistantMuted ? 'On' : 'Starting'}`
+  const liveCaseNote = caseNote.trim()
 
   const announce = useCallback((priority: LiveAnnouncement['priority'], text: string) => {
     const trimmed = text.trim()
@@ -926,145 +935,137 @@ export function CasePanel({
 
       {(panelState === 'live' || panelState === 'ended') && (
         <div className="flex w-full flex-col gap-3">
-          {showPreConnectStatusCard && (
-            <section aria-live="polite" className="rounded-2xl border border-border bg-card/80 px-4 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="font-sans text-base font-semibold text-foreground">{formatStatusLabel(callStatus)}</h2>
-                <p className="font-sans text-sm text-muted-foreground">Updated {formatTime(lastUpdated)}</p>
-              </div>
-              <p className="mt-2 font-sans text-base text-muted-foreground">
-                Silent mode: {assistantMuted ? 'On' : 'Starting'}
+          <section aria-live="polite" className="min-h-[72px] rounded-2xl border border-border bg-card/80 px-4 py-3">
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="font-sans text-base font-semibold text-foreground">{liveStatusLabel}</h2>
+              <p className="shrink-0 font-sans text-sm text-muted-foreground">Updated {formatTime(lastUpdated)}</p>
+            </div>
+            <p className="mt-1 font-sans text-base text-muted-foreground">{liveStatusDetail}</p>
+            {liveCaseNote && (
+              <p title={liveCaseNote} className="mt-1 truncate font-sans text-base text-foreground">
+                {liveCaseNote}
               </p>
-              {analyzing && (
-                <p className="mt-1 font-sans text-base text-muted-foreground">
-                  Reading the latest part of the call.
-                </p>
-              )}
-              {caseNote && <p className="mt-2 font-sans text-base text-foreground">{caseNote}</p>}
-            </section>
-          )}
+            )}
+          </section>
 
-          {!showPreConnectStatusCard && (analyzing || caseNote) && (
-            <section className="px-1" aria-live="polite">
-              {analyzing && (
-                <p className="font-sans text-base text-muted-foreground">
-                  Reading the latest part of the call.
-                </p>
-              )}
-              {caseNote && <p className="mt-1 font-sans text-base text-foreground">{caseNote}</p>}
-            </section>
-          )}
-
-          <section className="rounded-2xl border border-primary/40 bg-primary/10 px-4 py-4">
-            <h2 className="font-sans text-lg font-semibold text-foreground">What to do now</h2>
-            <ol className="mt-3 flex list-none flex-col gap-2">
-              {actionItems.map((item, index) => (
-                <li
-                  key={`${item}-${index}`}
-                  className={`flex items-start gap-3 rounded-xl border px-3 py-3 ${
-                    index === 0
-                      ? 'border-primary/50 bg-primary/15'
-                      : 'border-border/80 bg-card/60'
-                  }`}
-                >
-                  <span
-                    className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-sans text-sm font-semibold ${
+          <div className="grid h-[clamp(390px,58svh,560px)] min-h-0 grid-rows-[1fr_2.1fr_1fr] gap-3 overflow-hidden">
+            <section className="flex h-full min-h-0 flex-col rounded-2xl border border-primary/40 bg-primary/10 px-4 py-4">
+              <h2 className="font-sans text-lg font-semibold text-foreground">What to do now</h2>
+              <ol className="mt-3 flex min-h-0 flex-1 list-none flex-col gap-2 overflow-y-auto pr-1">
+                {actionItems.map((item, index) => (
+                  <li
+                    key={`${item}-${index}`}
+                    className={`flex items-start gap-3 rounded-xl border px-3 py-3 ${
                       index === 0
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-secondary text-foreground'
+                        ? 'border-primary/50 bg-primary/15'
+                        : 'border-border/80 bg-card/60'
                     }`}
                   >
-                    {index + 1}
-                  </span>
-                  <p
-                    className={`font-sans leading-relaxed ${
-                      index === 0 ? 'text-lg text-foreground' : 'text-base text-muted-foreground'
-                    }`}
-                  >
-                    {item}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          </section>
+                    <span
+                      className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-sans text-sm font-semibold ${
+                        index === 0
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-secondary text-foreground'
+                      }`}
+                    >
+                      {index + 1}
+                    </span>
+                    <p
+                      className={`font-sans leading-relaxed break-words ${
+                        index === 0 ? 'text-lg text-foreground' : 'text-base text-muted-foreground'
+                      }`}
+                    >
+                      {item}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            </section>
 
-          <section className="rounded-2xl border border-border bg-card px-3 py-3">
-            <h2 className="px-1 font-sans text-lg font-semibold text-foreground">Live transcript</h2>
-            <p className="mt-1 px-1 font-sans text-sm text-muted-foreground">New lines will appear automatically.</p>
-            <div
-              ref={transcriptViewportRef}
-              role="log"
-              aria-live="polite"
-              aria-relevant="additions text"
-              aria-atomic="false"
-              aria-label="Live call transcript"
-              tabIndex={0}
-              className="mt-3 flex h-[44dvh] min-h-[280px] flex-col gap-2 overflow-y-auto px-1 pb-1"
-            >
-              {transcript.length === 0 && (
-                <p className="mt-2 text-center font-sans text-base text-muted-foreground">
-                  Waiting for live transcript.
-                </p>
-              )}
-              {transcript.map((line) => (
-                <article
-                  key={line.id}
-                  aria-label={`${formatSpeakerLabel(line.speaker)} said`}
-                  className={`mx-auto w-fit max-w-[95%] rounded-2xl border px-4 py-3 transition-colors duration-150 ${
-                    line.isFinal
-                      ? 'border-border/70 bg-secondary/80'
-                      : 'border-primary/30 bg-primary/5'
-                  }`}
-                >
-                  <p
-                    className={`font-sans text-[17px] leading-relaxed whitespace-pre-wrap break-words ${
-                      line.isFinal ? 'text-foreground' : 'italic text-foreground/90'
-                    }`}
-                  >
-                    {line.text}
-                  </p>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section className={`rounded-2xl border px-4 py-4 ${riskTheme.card}`}>
-            <div className="flex items-center justify-between">
-              <h2 className="font-sans text-lg font-semibold text-foreground">Scam probability</h2>
-              <riskTheme.Icon aria-hidden="true" className={`h-5 w-5 ${riskTheme.label}`} />
-            </div>
-            <div className="mt-2 flex items-end justify-between gap-3">
-              <p className={`font-sans text-4xl font-semibold ${riskTheme.label}`}>{advice.riskScore}%</p>
-              <p className="font-sans text-base font-medium text-foreground">{advice.riskLevel} risk</p>
-            </div>
-            <div
-              className="mt-3 h-2 w-full rounded-full bg-background/70"
-              role="progressbar"
-              aria-label="Scam probability"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={advice.riskScore}
-            >
+            <section className="flex h-full min-h-0 flex-col rounded-2xl border border-border bg-card px-3 py-3">
+              <h2 className="px-1 font-sans text-lg font-semibold text-foreground">Live transcript</h2>
+              <p className="mt-1 px-1 font-sans text-sm text-muted-foreground">New lines will appear automatically.</p>
               <div
-                className={`h-2 rounded-full transition-[width] duration-700 ease-out ${riskTheme.meter}`}
-                style={{ width: `${advice.riskScore}%` }}
-              />
-            </div>
-            <p className="mt-2 font-sans text-base text-muted-foreground">
-              Scam probability {advice.riskScore} percent, {advice.riskLevel} risk.
-            </p>
-            <p className="mt-3 font-sans text-base leading-relaxed text-foreground">{advice.feedback}</p>
-          </section>
+                ref={transcriptViewportRef}
+                role="log"
+                aria-live="polite"
+                aria-relevant="additions text"
+                aria-atomic="false"
+                aria-label="Live call transcript"
+                tabIndex={0}
+                className="mt-3 flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-1 pb-1"
+              >
+                {transcript.length === 0 && (
+                  <p className="my-auto text-center font-sans text-base text-muted-foreground">
+                    Waiting for live transcript.
+                  </p>
+                )}
+                {transcript.map((line) => (
+                  <article
+                    key={line.id}
+                    aria-label={`${formatSpeakerLabel(line.speaker)} said`}
+                    className={`mx-auto w-fit max-w-[95%] rounded-2xl border px-4 py-3 transition-colors duration-150 ${
+                      line.isFinal
+                        ? 'border-border/70 bg-secondary/80'
+                        : 'border-primary/30 bg-primary/5'
+                    }`}
+                  >
+                    <p
+                      className={`font-sans text-[17px] leading-relaxed whitespace-pre-wrap break-words ${
+                        line.isFinal ? 'text-foreground' : 'italic text-foreground/90'
+                      }`}
+                    >
+                      {line.text}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </section>
 
-          <Button
-            onClick={resetSession}
-            variant="outline"
-            style={{ minHeight: PRIMARY_TAP_TARGET, fontSize: SECONDARY_TEXT_SIZE }}
-            className="font-sans font-semibold"
-          >
-            <RotateCcw className="mr-2 h-4 w-4" />
-            New session
-          </Button>
+            <section className={`flex h-full min-h-0 flex-col rounded-2xl border px-4 py-4 ${riskTheme.card}`}>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="font-sans text-lg font-semibold text-foreground">Scam probability</h2>
+                <riskTheme.Icon aria-hidden="true" className={`h-5 w-5 shrink-0 ${riskTheme.label}`} />
+              </div>
+              <div className="mt-2 flex items-end justify-between gap-3">
+                <p className={`w-[5ch] text-right font-sans text-4xl font-semibold tabular-nums ${riskTheme.label}`}>
+                  {advice.riskScore}%
+                </p>
+                <p className="font-sans text-base font-medium text-foreground">{advice.riskLevel} risk</p>
+              </div>
+              <div
+                className="mt-3 h-2 w-full shrink-0 rounded-full bg-background/70"
+                role="progressbar"
+                aria-label="Scam probability"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={advice.riskScore}
+              >
+                <div
+                  className={`h-2 rounded-full transition-[width] duration-700 ease-out ${riskTheme.meter}`}
+                  style={{ width: `${advice.riskScore}%` }}
+                />
+              </div>
+              <p className="mt-2 shrink-0 font-sans text-base text-muted-foreground">
+                Scam probability {advice.riskScore} percent, {advice.riskLevel} risk.
+              </p>
+              <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+                <p className="font-sans text-base leading-relaxed text-foreground">{advice.feedback}</p>
+              </div>
+            </section>
+          </div>
+
+          <div className="pb-[env(safe-area-inset-bottom)]">
+            <Button
+              onClick={resetSession}
+              variant="outline"
+              style={{ minHeight: PRIMARY_TAP_TARGET, fontSize: SECONDARY_TEXT_SIZE }}
+              className="w-full font-sans font-semibold"
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              New session
+            </Button>
+          </div>
         </div>
       )}
 
