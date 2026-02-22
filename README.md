@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <sub>Built for the <strong>Cybersecurity Track</strong> at the Tufts Hackathon.</sub>
+  <sub>Built for the <strong>Security Track</strong> at the Tufts Hackathon.</sub>
 </p>
 
 <p align="center">
