@@ -368,6 +368,7 @@ export async function getLiveSessionSnapshot(
     analyzing: row.analyzing,
     lastError: row.last_error,
     updatedAt: Number.isFinite(updatedAt) ? updatedAt : Date.now(),
+    lastAdviceAt: row.last_advice_at ? Date.parse(row.last_advice_at) : null,
     version: 1,
     advice: toAdvice(row.advice),
     transcript,

@@ -47,6 +47,7 @@ type LiveSessionPayload = {
   analyzing?: boolean
   lastError?: string | null
   updatedAt?: number
+  lastAdviceAt?: number | null
   advice?: LiveAdvice
   transcript?: TranscriptLine[]
   error?: string
@@ -71,6 +72,16 @@ const POLL_INTERVAL_VISIBLE_MS =
   readPositiveInt(process.env.NEXT_PUBLIC_LIVE_POLL_VISIBLE_MS) ?? DEFAULT_VISIBLE_POLL_INTERVAL_MS
 const POLL_INTERVAL_HIDDEN_MS =
   readPositiveInt(process.env.NEXT_PUBLIC_LIVE_POLL_HIDDEN_MS) ?? DEFAULT_HIDDEN_POLL_INTERVAL_MS
+const WAITING_ACTIONS_CONNECTING = [
+  'Waiting for live audio to connect.',
+  'Sit tight and relax. We will coach you as soon as speech starts.',
+  'Keep responses short and calm while we listen.',
+]
+const WAITING_ACTIONS_LISTENING = [
+  'Listening now and building guidance from the conversation.',
+  'Stay calm and avoid sharing personal info, codes, or payments.',
+  'Your next live action will appear here in a moment.',
+]
 
 function readPositiveInt(value: string | undefined): number | null {
   if (!value?.trim()) {
@@ -337,7 +348,24 @@ function normalizeActionItems(advice: LiveAdvice): string[] {
     return deduped.slice(0, 3)
   }
 
-  return [createDefaultAdvice().whatToDo]
+  return ['Waiting for the next coaching update.']
+}
+
+function getWaitingActionItems(params: { callConnected: boolean; analyzing: boolean }): string[] {
+  const { callConnected, analyzing } = params
+  if (!callConnected) {
+    return WAITING_ACTIONS_CONNECTING
+  }
+
+  if (analyzing) {
+    return WAITING_ACTIONS_LISTENING
+  }
+
+  return [
+    'Listening for the next clear segment.',
+    'You can keep talking normally.',
+    'Live actions will update automatically.',
+  ]
 }
 
 export function CasePanel({
@@ -358,6 +386,7 @@ export function CasePanel({
   const [error, setError] = useState('')
   const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const [advice, setAdvice] = useState<LiveAdvice>(createDefaultAdvice())
+  const [hasLiveAdvice, setHasLiveAdvice] = useState(false)
   const [rawTranscript, setRawTranscript] = useState<TranscriptLine[]>([])
   const [politeAnnouncement, setPoliteAnnouncement] = useState<LiveAnnouncement | null>(null)
   const [assertiveAnnouncement, setAssertiveAnnouncement] = useState<LiveAnnouncement | null>(null)
@@ -372,9 +401,18 @@ export function CasePanel({
 
   const storageKey = `${STORAGE_KEY_PREFIX}${slug}`
   const supabase = useMemo(() => createClient(), [])
-  const actionItems = useMemo(() => normalizeActionItems(advice), [advice])
-  const transcript = useMemo(() => compactTranscriptForDisplay(rawTranscript), [rawTranscript])
   const callConnected = panelState === 'live' && isConnectedStatus(callStatus)
+  const actionItems = useMemo(
+    () =>
+      hasLiveAdvice
+        ? normalizeActionItems(advice)
+        : getWaitingActionItems({
+            callConnected,
+            analyzing,
+          }),
+    [advice, analyzing, callConnected, hasLiveAdvice],
+  )
+  const transcript = useMemo(() => compactTranscriptForDisplay(rawTranscript), [rawTranscript])
   const showProtectedNumberCard =
     panelState === 'idle' || panelState === 'starting' || (panelState === 'live' && !callConnected)
   const showPreConnectStatusCard = panelState === 'ended' || !callConnected
@@ -499,6 +537,12 @@ export function CasePanel({
         setLastUpdated(data.updatedAt)
       }
 
+      if (data.lastAdviceAt === null) {
+        setHasLiveAdvice(false)
+      } else if (typeof data.lastAdviceAt === 'number' && Number.isFinite(data.lastAdviceAt)) {
+        setHasLiveAdvice(true)
+      }
+
       if (data.advice) {
         setAdvice(data.advice)
       }
@@ -548,6 +592,15 @@ export function CasePanel({
         const updatedAt = Date.parse(row.updated_at)
         if (Number.isFinite(updatedAt)) {
           setLastUpdated(updatedAt)
+        }
+      }
+
+      if (row.last_advice_at === null) {
+        setHasLiveAdvice(false)
+      } else if (typeof row.last_advice_at === 'string') {
+        const lastAdviceAt = Date.parse(row.last_advice_at)
+        if (Number.isFinite(lastAdviceAt)) {
+          setHasLiveAdvice(true)
         }
       }
 
@@ -754,6 +807,7 @@ export function CasePanel({
     setPanelState('starting')
     setError('')
     setCaseNote('Calling your saved number...')
+    setHasLiveAdvice(false)
 
     try {
       const res = await fetch('/api/call', {
@@ -792,6 +846,7 @@ export function CasePanel({
     setError('')
     setLastUpdated(null)
     setAdvice(createDefaultAdvice())
+    setHasLiveAdvice(false)
     setRawTranscript([])
     shouldAutoFollowTranscriptRef.current = true
     window.sessionStorage.removeItem(storageKey)

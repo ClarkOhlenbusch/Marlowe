@@ -37,6 +37,7 @@ export type LiveSessionSnapshot = {
   analyzing: boolean
   lastError: string | null
   updatedAt: number
+  lastAdviceAt: number | null
   version: number
   advice: CoachingAdvice
   transcript: TranscriptChunk[]
