@@ -18,8 +18,8 @@
 
 ---
 
-<p>
-  <img src="public/marlowe_phone_1.png" alt="Marlowe (1969) phone" width="200" />
+<p align="center">
+  <img src="./public/marlowe_phone_1.png" alt="Marlowe app phone screenshot" width="420" />
 </p>
 
 ---
