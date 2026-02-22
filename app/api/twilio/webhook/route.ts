@@ -205,7 +205,9 @@ async function runAdviceCycle(callSid: string, state: AdviceRunState, forceModel
     state.lastStableAdvice = summary.advice
   }
 
-  const transcript = await getTranscriptChunks(callSid, ADVICE_TRANSCRIPT_LIMIT)
+  const transcript = (await getTranscriptChunks(callSid, ADVICE_TRANSCRIPT_LIMIT)).filter(
+    (chunk) => chunk.isFinal,
+  )
   if (transcript.length === 0) {
     return
   }
@@ -386,6 +388,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (event.transcript) {
+      const normalizedStatus = normalizeSessionStatus(event.status ?? '')
+      const callEnded = isTerminalStatus(normalizedStatus)
+
       await appendTranscriptChunk({
         callSid: event.callSid,
         sourceEventId: event.transcript.sourceEventId,
@@ -395,9 +400,9 @@ export async function POST(request: NextRequest) {
         timestamp: event.transcript.timestamp,
       })
 
-      const normalizedStatus = normalizeSessionStatus(event.status ?? '')
-      const callEnded = isTerminalStatus(normalizedStatus)
-      runAdviceForCall(event.callSid, event.transcript.isFinal || callEnded)
+      if (event.transcript.isFinal || callEnded) {
+        runAdviceForCall(event.callSid, true)
+      }
     } else if (event.status && isTerminalStatus(normalizeSessionStatus(event.status))) {
       runAdviceForCall(event.callSid, true)
     }

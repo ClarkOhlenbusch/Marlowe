@@ -51,6 +51,54 @@ function collapseDuplicateWords(words: string[]): string[] {
   return deduped
 }
 
+function tokenize(value: string): string[] {
+  return value
+    .split(' ')
+    .map((word) => normalizeToken(word))
+    .filter(Boolean)
+}
+
+function countPrefixTokenMatches(previousTokens: string[], nextTokens: string[]): number {
+  const limit = Math.min(previousTokens.length, nextTokens.length)
+  let matches = 0
+
+  for (let index = 0; index < limit; index += 1) {
+    if (previousTokens[index] !== nextTokens[index]) {
+      break
+    }
+    matches += 1
+  }
+
+  return matches
+}
+
+function looksLikeRestart(previousText: string, nextText: string): boolean {
+  const previousTokens = tokenize(previousText)
+  const nextTokens = tokenize(nextText)
+
+  if (previousTokens.length === 0 || nextTokens.length === 0) {
+    return false
+  }
+
+  const prefixMatches = countPrefixTokenMatches(previousTokens, nextTokens)
+  if (prefixMatches >= 2) {
+    return true
+  }
+
+  if (prefixMatches >= 1 && nextTokens.length >= 4) {
+    return true
+  }
+
+  if (
+    previousTokens[0] === nextTokens[0] &&
+    nextTokens.length >= Math.max(4, Math.floor(previousTokens.length * 0.7))
+  ) {
+    return true
+  }
+
+  return false
+}
+
 function shouldReplaceWithFinal(previousWords: string[], nextWords: string[]): boolean {
   if (nextWords.length < FINAL_REPLACE_MIN_WORDS) {
     return false
@@ -85,7 +133,15 @@ export function mergeIncrementalTranscriptText(
     return next
   }
 
+  if (nextLower.includes(previousLower)) {
+    return next
+  }
+
   if (previousLower.startsWith(nextLower)) {
+    return previous
+  }
+
+  if (previousLower.includes(nextLower)) {
     return previous
   }
 
@@ -95,6 +151,10 @@ export function mergeIncrementalTranscriptText(
 
   if (overlap > 0) {
     return collapseDuplicateWords([...previousWords, ...nextWords.slice(overlap)]).join(' ')
+  }
+
+  if (looksLikeRestart(previous, next)) {
+    return next
   }
 
   if (options.isFinal && shouldReplaceWithFinal(previousWords, nextWords)) {
