@@ -1,4 +1,5 @@
 # Marlowe 🕵🏻
+> **Name inspiration:** *Marlowe* (1969), the neo-noir detective film starring James Garner.
 
 A hackathon project that helps people pause before they get scammed. Users submit their phone number, tap **Start Silent Monitor**, and receive a callback that streams live transcript to an on-screen scam coach.
 
