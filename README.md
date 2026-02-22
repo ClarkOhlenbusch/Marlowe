@@ -17,12 +17,10 @@
 </p>
 
 ---
-> **Name inspiration:** *Marlowe* (1969), the neo-noir detective film starring James Garner.  
+> **Name inspiration:** *Marlowe* (1969), a neo-noir detective film starring James Garner.
 
-<p align="center">
-  <img src="public/marlowe_movie_1969.jpg" alt="Marlowe mobile app screenshot" width="300" />
-  <br />
-  <em>Marlowe (1969) movie poster inspiration.</em>
+<p>
+  <img src="public/marlowe_movie_1969.jpg" alt="Marlowe (1969) poster inspiration" width="120" />
 </p>
 
 ---
