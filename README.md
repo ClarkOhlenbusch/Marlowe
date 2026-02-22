@@ -46,25 +46,11 @@ We built **Marlowe**, a **live scam detective** that works during the call itsel
       <img src="./public/marlowe_movie_1969.jpg" alt="Marlowe (1969) poster inspiration" width="90" />
     </td>
     <td valign="top">
-      <sub>
-        <strong>Name inspiration:</strong> <em>Marlowe</em> (1969), a neo-noir detective film starring James Garner. The name is a nod to the project’s detective theme.
-      </sub>
+      <strong>Name inspiration:</strong> <em>Marlowe</em> (1969), a neo-noir detective film starring James Garner.
     </td>
   </tr>
 </table>
 
-<p>
-  <img
-    src="./public/marlowe_movie_1969.jpg"
-    alt="Marlowe (1969) poster inspiration"
-    width="90"
-    align="left"
-  />
-  <sub>
-    <strong>Name inspiration:</strong> <em>Marlowe</em> (1969), a neo-noir detective film starring James Garner.
-    The name is a nod to the project’s detective theme.
-  </sub>
-</p>
 1. **Live iPhone call transcription** — We orchestrate a Twilio-powered silent monitor call that bridges into the user's active conversation. Twilio's `<Transcription>` streams both sides of the call (`track="both_tracks"`) as partial and final transcript events via webhooks — giving us real-time access to audio that iOS normally locks down entirely.
 
 2. **Near-real-time coaching pipeline** — Every transcript chunk hits our webhook, gets persisted to Supabase, and triggers a dual-layer analysis engine:
