@@ -33,8 +33,6 @@ export const viewport: Viewport = {
   themeColor: '#1a1a2e',
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
 }
 
 export default function RootLayout({
@@ -47,6 +45,12 @@ export default function RootLayout({
       <body
         className={`${dmSans.variable} ${playfair.variable} ${specialElite.variable} font-sans antialiased`}
       >
+        <a
+          href="#main-content"
+          className="sr-only fixed left-3 top-3 z-[200] rounded-md bg-primary px-4 py-3 text-base font-semibold text-primary-foreground focus:not-sr-only"
+        >
+          Skip to main content
+        </a>
         {children}
         <Analytics />
       </body>

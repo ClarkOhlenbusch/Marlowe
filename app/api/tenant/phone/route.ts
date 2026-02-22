@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { isValidE164 } from '@/lib/phone'
+import { isValidE164, normalizePhone } from '@/lib/phone'
 import { getClientIp, takeRateLimit } from '@/lib/rate-limit'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -22,12 +22,20 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    if (!isValidE164(phoneNumber)) {
+    const normalized = normalizePhone(phoneNumber)
+
+    if (!normalized.ok || !isValidE164(normalized.number)) {
       return NextResponse.json(
-        { ok: false, error: 'Invalid phone number format. Use E.164 format (e.g. +14155552671).' },
+        {
+          ok: false,
+          error:
+            'Invalid phone number format. Use 10 US digits, 11 digits starting with 1, or +country format (for example +14155552671).',
+        },
         { status: 400 }
       )
     }
+
+    const normalizedPhoneNumber = normalized.number
 
     const ip = getClientIp(request)
     if (!takeRateLimit(`tenant-phone:ip:${ip}`, 20, 10 * 60_000)) {
@@ -52,7 +60,7 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    if (tenant.phone_number === phoneNumber) {
+    if (tenant.phone_number === normalizedPhoneNumber) {
       return NextResponse.json({ ok: true })
     }
 
@@ -69,7 +77,7 @@ export async function PUT(request: NextRequest) {
 
     const { error } = await supabase
       .from('tenants')
-      .update({ phone_number: phoneNumber, updated_at: new Date().toISOString() })
+      .update({ phone_number: normalizedPhoneNumber, updated_at: new Date().toISOString() })
       .eq('slug', slug)
 
     if (error) {

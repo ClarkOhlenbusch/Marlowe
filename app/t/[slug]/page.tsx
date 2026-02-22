@@ -34,7 +34,11 @@ export default async function TenantHomePage({
   const displayTenantName = resolveTenantDisplayName(tenant.name)
 
   return (
-    <main className="relative min-h-dvh bg-background px-4 py-5 sm:px-6 sm:py-8">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className="relative min-h-dvh bg-background px-4 py-5 sm:px-6 sm:py-8"
+    >
       <div className="absolute inset-x-0 top-0 h-px bg-primary/20" aria-hidden="true" />
 
       <div className="mx-auto flex w-full max-w-md justify-center pb-14">
@@ -46,7 +50,7 @@ export default async function TenantHomePage({
       </div>
 
       <footer className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center py-6">
-        <p className="font-mono text-xs uppercase tracking-[0.25em] text-muted-foreground/50">
+        <p className="font-mono text-sm tracking-wide text-muted-foreground/70">
           {BRAND_NAME}
         </p>
       </footer>

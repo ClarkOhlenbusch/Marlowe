@@ -33,11 +33,11 @@ export default async function TenantSetupPage({
     <NoirFrame>
       <DetectiveBadge />
       {displayTenantName && (
-        <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
+        <p className="text-center font-mono text-base tracking-wide text-muted-foreground">
           {displayTenantName}
         </p>
       )}
-      <p className="max-w-xs text-center font-mono text-sm leading-relaxed text-muted-foreground">
+      <p className="max-w-sm text-center font-sans text-lg leading-relaxed text-foreground">
         Save your number once. When a suspicious call starts, tap to launch silent live coaching.
       </p>
       <div className="h-px w-16 bg-border" role="separator" />
