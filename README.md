@@ -10,7 +10,7 @@
 
 <p align="center">
   <sub>
-  Built for the <strong>Cybersecurity Track</strong> at the Tuft's University
+  Built for the <strong>Security Track</strong> at the Tuft's University
   <a href="https://jumbohack.org/">2026 JumboHack</a>.
 </sub>
 </p>
