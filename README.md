@@ -40,7 +40,7 @@ Scammers use **urgency, fear, and isolation** to prevent victims from pausing to
 
 We built **Marlowe**, a **live scam detective** that works during the call itself, helping users pause before they send money, share credentials, or comply with threats.
 
-<table>
+<table align="center">
   <tr>
     <td valign="top">
       <img src="./public/marlowe_movie_1969.jpg" alt="Marlowe (1969) poster inspiration" width="90" />
