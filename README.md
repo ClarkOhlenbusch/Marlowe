@@ -130,6 +130,7 @@ User enters phone number → Marlowe calls them back via Twilio
 - **Supabase** — backend services, Realtime, Postgres
 - **Twilio** — outbound calls + live transcription
 - **Groq** — real-time LLM coaching on transcript chunks
+- **Deepgram Nova-3** — real-time transcription model
 
 ---
 
