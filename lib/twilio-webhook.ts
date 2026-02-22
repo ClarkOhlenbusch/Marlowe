@@ -324,7 +324,7 @@ function buildSourceEventId(params: {
       ? `${params.transcriptionSid}:${params.sequenceId}:${params.speaker}`
       : null
 
-  const stablePrimaryId = params.segmentSid || params.sourceHint || sequenceKey
+  const stablePrimaryId = sequenceKey || params.segmentSid || params.sourceHint
 
   if (stablePrimaryId) {
     return createHash('sha1')

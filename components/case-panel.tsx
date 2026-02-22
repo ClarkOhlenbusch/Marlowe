@@ -51,6 +51,7 @@ type LiveSessionPayload = {
 
 const STORAGE_KEY_PREFIX = 'live-call:'
 const MAX_TRANSCRIPT_LINES = 40
+const UTTERANCE_GAP_MS = 1_400
 const DEFAULT_VISIBLE_POLL_INTERVAL_MS = 800
 const DEFAULT_HIDDEN_POLL_INTERVAL_MS = 2_500
 const RECONNECT_NOTE = 'Live updates paused. Reconnecting...'
@@ -187,6 +188,155 @@ function mergeTranscriptLine(lines: TranscriptLine[], nextLine: TranscriptLine):
   return merged.slice(-MAX_TRANSCRIPT_LINES)
 }
 
+function normalizeTranscriptText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function normalizeToken(value: string): string {
+  const lowered = value.toLowerCase()
+  const stripped = lowered.replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, '')
+  return stripped || lowered
+}
+
+function findWordOverlap(previousWords: string[], nextWords: string[]): number {
+  const maxOverlap = Math.min(previousWords.length, nextWords.length)
+
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    let matched = true
+
+    for (let index = 0; index < overlap; index += 1) {
+      const previousToken = normalizeToken(previousWords[previousWords.length - overlap + index] ?? '')
+      const nextToken = normalizeToken(nextWords[index] ?? '')
+
+      if (!previousToken || !nextToken || previousToken !== nextToken) {
+        matched = false
+        break
+      }
+    }
+
+    if (matched) {
+      return overlap
+    }
+  }
+
+  return 0
+}
+
+function collapseDuplicateWords(words: string[]): string[] {
+  const deduped: string[] = []
+  let previousToken = ''
+
+  for (const word of words) {
+    const token = normalizeToken(word)
+    if (token && token === previousToken) {
+      continue
+    }
+
+    deduped.push(word)
+    previousToken = token
+  }
+
+  return deduped
+}
+
+function mergeUtteranceText(previousText: string, nextText: string): string {
+  const previous = normalizeTranscriptText(previousText)
+  const next = normalizeTranscriptText(nextText)
+
+  if (!previous) return next
+  if (!next) return previous
+
+  const previousLower = previous.toLowerCase()
+  const nextLower = next.toLowerCase()
+
+  if (previousLower === nextLower) {
+    return previous
+  }
+
+  if (nextLower.startsWith(previousLower)) {
+    return next
+  }
+
+  if (previousLower.startsWith(nextLower)) {
+    return previous
+  }
+
+  const previousWords = previous.split(' ')
+  const nextWords = next.split(' ')
+  const overlap = findWordOverlap(previousWords, nextWords)
+
+  if (overlap === 0) {
+    return next
+  }
+
+  return collapseDuplicateWords([...previousWords, ...nextWords.slice(overlap)]).join(' ')
+}
+
+function shouldStartNewUtterance(previous: TranscriptLine, next: TranscriptLine): boolean {
+  if (previous.speaker !== next.speaker) {
+    return true
+  }
+
+  if (previous.isFinal) {
+    return true
+  }
+
+  return next.timestamp - previous.timestamp > UTTERANCE_GAP_MS
+}
+
+function compactTranscriptForDisplay(lines: TranscriptLine[]): TranscriptLine[] {
+  if (lines.length === 0) {
+    return []
+  }
+
+  const ordered = lines.slice().sort((a, b) => {
+    if (a.timestamp !== b.timestamp) {
+      return a.timestamp - b.timestamp
+    }
+
+    const aNum = Number(a.id)
+    const bNum = Number(b.id)
+    if (Number.isFinite(aNum) && Number.isFinite(bNum)) {
+      return aNum - bNum
+    }
+
+    return a.id.localeCompare(b.id)
+  })
+
+  const compacted: TranscriptLine[] = []
+
+  for (const entry of ordered) {
+    const normalizedText = normalizeTranscriptText(entry.text)
+    if (!normalizedText) {
+      continue
+    }
+
+    const nextEntry: TranscriptLine = {
+      ...entry,
+      text: normalizedText,
+    }
+
+    const previous = compacted[compacted.length - 1]
+    if (!previous || shouldStartNewUtterance(previous, nextEntry)) {
+      compacted.push(nextEntry)
+      continue
+    }
+
+    compacted[compacted.length - 1] = {
+      ...previous,
+      text: mergeUtteranceText(previous.text, nextEntry.text),
+      timestamp: Math.max(previous.timestamp, nextEntry.timestamp),
+      isFinal: previous.isFinal || nextEntry.isFinal,
+    }
+  }
+
+  if (compacted.length <= MAX_TRANSCRIPT_LINES) {
+    return compacted
+  }
+
+  return compacted.slice(-MAX_TRANSCRIPT_LINES)
+}
+
 function normalizeActionItems(advice: LiveAdvice): string[] {
   const values = [advice.whatToDo, ...advice.nextSteps]
   const deduped: string[] = []
@@ -226,12 +376,13 @@ export function CasePanel({
   const [error, setError] = useState('')
   const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const [advice, setAdvice] = useState<LiveAdvice>(createDefaultAdvice())
-  const [transcript, setTranscript] = useState<TranscriptLine[]>([])
+  const [rawTranscript, setRawTranscript] = useState<TranscriptLine[]>([])
   const transcriptViewportRef = useRef<HTMLDivElement | null>(null)
 
   const storageKey = `${STORAGE_KEY_PREFIX}${slug}`
   const supabase = useMemo(() => createClient(), [])
   const actionItems = useMemo(() => normalizeActionItems(advice), [advice])
+  const transcript = useMemo(() => compactTranscriptForDisplay(rawTranscript), [rawTranscript])
   const callConnected = panelState === 'live' && isConnectedStatus(callStatus)
   const showCaseHeader = panelState === 'idle'
   const showProtectedNumberCard =
@@ -280,12 +431,20 @@ export function CasePanel({
       }
 
       if (Array.isArray(data.transcript)) {
-        setTranscript(
-          data.transcript.slice(-MAX_TRANSCRIPT_LINES).map((line) => ({
+        const normalized = data.transcript
+          .slice(-MAX_TRANSCRIPT_LINES)
+          .map((line) => ({
             ...line,
+            text: normalizeTranscriptText(line.text),
             isFinal: line.isFinal !== false,
-          })),
+          }))
+
+        const merged = normalized.reduce<TranscriptLine[]>(
+          (previous, line) => mergeTranscriptLine(previous, line),
+          [],
         )
+
+        setRawTranscript(merged)
       }
 
       if (data.lastError) {
@@ -340,12 +499,12 @@ export function CasePanel({
       const line: TranscriptLine = {
         id: String(rawId),
         speaker: toSpeaker(row.speaker),
-        text: text.trim(),
+        text: normalizeTranscriptText(text),
         timestamp: parseTimestampMs(row.timestamp_ms),
         isFinal: typeof row.is_final === 'boolean' ? row.is_final : true,
       }
 
-      setTranscript((previous) => mergeTranscriptLine(previous, line))
+      setRawTranscript((previous) => mergeTranscriptLine(previous, line))
     }
 
     async function pollLiveSession() {
@@ -539,7 +698,7 @@ export function CasePanel({
     setError('')
     setLastUpdated(null)
     setAdvice(createDefaultAdvice())
-    setTranscript([])
+    setRawTranscript([])
     window.sessionStorage.removeItem(storageKey)
   }
 
