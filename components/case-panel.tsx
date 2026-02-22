@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   AlertTriangle,
@@ -12,8 +12,11 @@ import {
   ShieldQuestion,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion'
+import { BASE_TEXT_SIZE, PRIMARY_TAP_TARGET, SECONDARY_TEXT_SIZE } from '@/lib/a11y'
 import { BRAND_NAME } from '@/lib/brand'
 import { createClient } from '@/lib/supabase/client'
+import { mergeIncrementalTranscriptText, normalizeTranscriptText } from '@/lib/transcript-merge'
 
 type PanelState = 'idle' | 'starting' | 'live' | 'ended' | 'error'
 type RiskLevel = 'low' | 'medium' | 'high'
@@ -47,6 +50,12 @@ type LiveSessionPayload = {
   advice?: LiveAdvice
   transcript?: TranscriptLine[]
   error?: string
+}
+
+type LiveAnnouncement = {
+  id: string
+  priority: 'polite' | 'assertive'
+  text: string
 }
 
 const STORAGE_KEY_PREFIX = 'live-call:'
@@ -127,6 +136,13 @@ function isConnectedStatus(status: string): boolean {
   )
 }
 
+function formatSpeakerLabel(speaker: TranscriptLine['speaker']): string {
+  if (speaker === 'caller') return 'You'
+  if (speaker === 'other') return 'Other caller'
+  if (speaker === 'assistant') return 'Assistant'
+  return 'Unknown speaker'
+}
+
 function formatTime(timestamp: number | null): string {
   if (!timestamp) return '--'
   return new Date(timestamp).toLocaleTimeString([], {
@@ -172,7 +188,20 @@ function toSpeaker(value: unknown): TranscriptLine['speaker'] {
 }
 
 function mergeTranscriptLine(lines: TranscriptLine[], nextLine: TranscriptLine): TranscriptLine[] {
-  const merged = [...lines.filter((line) => line.id !== nextLine.id), nextLine]
+  const existingLine = lines.find((line) => line.id === nextLine.id)
+  const mergedLine = existingLine
+    ? {
+        ...nextLine,
+        speaker: nextLine.speaker === 'unknown' ? existingLine.speaker : nextLine.speaker,
+        text: mergeIncrementalTranscriptText(existingLine.text, nextLine.text, {
+          isFinal: nextLine.isFinal,
+        }),
+        timestamp: Math.max(existingLine.timestamp, nextLine.timestamp),
+        isFinal: existingLine.isFinal || nextLine.isFinal,
+      }
+    : nextLine
+
+  const merged = [...lines.filter((line) => line.id !== nextLine.id), mergedLine]
 
   merged.sort((a, b) => {
     if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp
@@ -189,90 +218,6 @@ function mergeTranscriptLine(lines: TranscriptLine[], nextLine: TranscriptLine):
 
   if (merged.length <= MAX_TRANSCRIPT_LINES) return merged
   return merged.slice(-MAX_TRANSCRIPT_LINES)
-}
-
-function normalizeTranscriptText(value: string): string {
-  return value.replace(/\s+/g, ' ').trim()
-}
-
-function normalizeToken(value: string): string {
-  const lowered = value.toLowerCase()
-  const stripped = lowered.replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, '')
-  return stripped || lowered
-}
-
-function findWordOverlap(previousWords: string[], nextWords: string[]): number {
-  const maxOverlap = Math.min(previousWords.length, nextWords.length)
-
-  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
-    let matched = true
-
-    for (let index = 0; index < overlap; index += 1) {
-      const previousToken = normalizeToken(previousWords[previousWords.length - overlap + index] ?? '')
-      const nextToken = normalizeToken(nextWords[index] ?? '')
-
-      if (!previousToken || !nextToken || previousToken !== nextToken) {
-        matched = false
-        break
-      }
-    }
-
-    if (matched) {
-      return overlap
-    }
-  }
-
-  return 0
-}
-
-function collapseDuplicateWords(words: string[]): string[] {
-  const deduped: string[] = []
-  let previousToken = ''
-
-  for (const word of words) {
-    const token = normalizeToken(word)
-    if (token && token === previousToken) {
-      continue
-    }
-
-    deduped.push(word)
-    previousToken = token
-  }
-
-  return deduped
-}
-
-function mergeUtteranceText(previousText: string, nextText: string): string {
-  const previous = normalizeTranscriptText(previousText)
-  const next = normalizeTranscriptText(nextText)
-
-  if (!previous) return next
-  if (!next) return previous
-
-  const previousLower = previous.toLowerCase()
-  const nextLower = next.toLowerCase()
-
-  if (previousLower === nextLower) {
-    return previous
-  }
-
-  if (nextLower.startsWith(previousLower)) {
-    return next
-  }
-
-  if (previousLower.startsWith(nextLower)) {
-    return previous
-  }
-
-  const previousWords = previous.split(' ')
-  const nextWords = next.split(' ')
-  const overlap = findWordOverlap(previousWords, nextWords)
-
-  if (overlap === 0) {
-    return next
-  }
-
-  return collapseDuplicateWords([...previousWords, ...nextWords.slice(overlap)]).join(' ')
 }
 
 function countSentenceBoundaries(text: string): number {
@@ -359,7 +304,9 @@ function compactTranscriptForDisplay(lines: TranscriptLine[]): TranscriptLine[] 
 
     compacted[compacted.length - 1] = {
       ...previous,
-      text: mergeUtteranceText(previous.text, nextEntry.text),
+      text: mergeIncrementalTranscriptText(previous.text, nextEntry.text, {
+        isFinal: nextEntry.isFinal,
+      }),
       timestamp: Math.max(previous.timestamp, nextEntry.timestamp),
       isFinal: previous.isFinal || nextEntry.isFinal,
     }
@@ -412,18 +359,45 @@ export function CasePanel({
   const [lastUpdated, setLastUpdated] = useState<number | null>(null)
   const [advice, setAdvice] = useState<LiveAdvice>(createDefaultAdvice())
   const [rawTranscript, setRawTranscript] = useState<TranscriptLine[]>([])
+  const [politeAnnouncement, setPoliteAnnouncement] = useState<LiveAnnouncement | null>(null)
+  const [assertiveAnnouncement, setAssertiveAnnouncement] = useState<LiveAnnouncement | null>(null)
   const transcriptViewportRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoFollowTranscriptRef = useRef(true)
+  const announcementCounterRef = useRef(0)
+  const previousPanelStateRef = useRef<PanelState>('idle')
+  const previousCallStatusRef = useRef(callStatus)
+  const previousAnalyzingRef = useRef(analyzing)
+  const previousCaseNoteRef = useRef('')
+  const prefersReducedMotion = usePrefersReducedMotion()
 
   const storageKey = `${STORAGE_KEY_PREFIX}${slug}`
   const supabase = useMemo(() => createClient(), [])
   const actionItems = useMemo(() => normalizeActionItems(advice), [advice])
   const transcript = useMemo(() => compactTranscriptForDisplay(rawTranscript), [rawTranscript])
   const callConnected = panelState === 'live' && isConnectedStatus(callStatus)
-  const showCaseHeader = panelState === 'idle'
   const showProtectedNumberCard =
     panelState === 'idle' || panelState === 'starting' || (panelState === 'live' && !callConnected)
   const showPreConnectStatusCard = panelState === 'ended' || !callConnected
+
+  const announce = useCallback((priority: LiveAnnouncement['priority'], text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+
+    const announcement: LiveAnnouncement = {
+      id: `${Date.now()}-${announcementCounterRef.current}`,
+      priority,
+      text: trimmed,
+    }
+
+    announcementCounterRef.current += 1
+
+    if (priority === 'assertive') {
+      setAssertiveAnnouncement(announcement)
+      return
+    }
+
+    setPoliteAnnouncement(announcement)
+  }, [])
 
   useEffect(() => {
     const existingCallId = window.sessionStorage.getItem(storageKey)
@@ -436,6 +410,68 @@ export function CasePanel({
     setPanelState('live')
     setCaseNote('Reconnected to your active monitor session.')
   }, [storageKey])
+
+  useEffect(() => {
+    if (!error.trim()) return
+    announce('assertive', error)
+  }, [announce, error])
+
+  useEffect(() => {
+    const previousState = previousPanelStateRef.current
+    if (previousState === panelState) {
+      return
+    }
+
+    if (panelState === 'starting') {
+      announce('polite', 'Starting silent monitor. We are calling your saved number.')
+    } else if (panelState === 'live' && callConnected) {
+      announce('polite', 'Call connected. Live coaching is active.')
+    } else if (panelState === 'ended') {
+      announce('assertive', 'Call ended. You can start a new session.')
+    } else if (panelState === 'error') {
+      announce('assertive', error || 'Session failed. Please try again.')
+    } else if (panelState === 'idle' && previousState !== 'idle') {
+      announce('polite', 'Ready for a new session.')
+    }
+
+    previousPanelStateRef.current = panelState
+  }, [announce, callConnected, error, panelState])
+
+  useEffect(() => {
+    if (previousCallStatusRef.current === callStatus) {
+      return
+    }
+
+    previousCallStatusRef.current = callStatus
+    if (panelState === 'idle') {
+      return
+    }
+
+    announce('polite', `Call status: ${formatStatusLabel(callStatus)}.`)
+  }, [announce, callStatus, panelState])
+
+  useEffect(() => {
+    if (analyzing && !previousAnalyzingRef.current) {
+      announce('polite', 'Reviewing the latest part of the call.')
+    }
+
+    previousAnalyzingRef.current = analyzing
+  }, [analyzing, announce])
+
+  useEffect(() => {
+    if (!caseNote.trim() || caseNote === previousCaseNoteRef.current) {
+      return
+    }
+
+    const normalized = caseNote.toLowerCase()
+    const isCritical =
+      normalized.includes('fail') ||
+      normalized.includes('error') ||
+      normalized.includes('expired')
+
+    announce(isCritical ? 'assertive' : 'polite', caseNote)
+    previousCaseNoteRef.current = caseNote
+  }, [announce, caseNote])
 
   useEffect(() => {
     if (!callId) return
@@ -682,9 +718,9 @@ export function CasePanel({
 
     viewport.scrollTo({
       top: viewport.scrollHeight,
-      behavior: 'smooth',
+      behavior: prefersReducedMotion ? 'auto' : 'smooth',
     })
-  }, [transcript])
+  }, [prefersReducedMotion, transcript])
 
   const riskTheme = useMemo(() => {
     if (advice.riskLevel === 'high') {
@@ -761,221 +797,260 @@ export function CasePanel({
   }
 
   return (
-    <div className="flex w-full max-w-md flex-col gap-4">
-      {showCaseHeader && (
-        <div className="flex flex-col gap-1">
-          <p className="font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground/80">
-            {BRAND_NAME}
-          </p>
-          {tenantName && (
-            <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{tenantName}</p>
-          )}
-        </div>
-      )}
+    <section aria-labelledby="live-coach-title" className="flex w-full max-w-md flex-col gap-4 pb-2">
+      <p key={politeAnnouncement?.id ?? 'polite'} className="sr-only" role="status" aria-live="polite">
+        {politeAnnouncement?.text ?? ''}
+      </p>
+      <p key={assertiveAnnouncement?.id ?? 'assertive'} className="sr-only" role="alert" aria-live="assertive">
+        {assertiveAnnouncement?.text ?? ''}
+      </p>
+
+      <header className="flex flex-col gap-2">
+        <p className="font-sans text-sm font-medium text-muted-foreground">{BRAND_NAME}</p>
+        <h1 id="live-coach-title" className="font-sans text-2xl font-semibold text-foreground">
+          Live scam coach
+        </h1>
+        {tenantName && <p className="font-sans text-base text-muted-foreground">{tenantName}</p>}
+      </header>
 
       {showProtectedNumberCard && (
-        <div className="flex items-center justify-between rounded-xl border border-border bg-card/70 px-4 py-3">
+        <section
+          aria-label="Saved phone number and call status"
+          className="flex items-center justify-between rounded-xl border border-border bg-card/70 px-4 py-3"
+        >
           <div className="flex flex-col gap-1">
-            <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-              Protected Number
-            </p>
-            <p className="font-mono text-base text-foreground">{maskedPhone}</p>
+            <p className="font-sans text-sm text-muted-foreground">Protected number</p>
+            <p className="font-sans text-lg font-semibold text-foreground">{maskedPhone}</p>
           </div>
           {panelState !== 'idle' && (
             <div className="text-right">
-              <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Status</p>
-              <p className="font-mono text-xs uppercase tracking-widest text-foreground">
+              <p className="font-sans text-sm text-muted-foreground">Status</p>
+              <p className="font-sans text-base font-semibold text-foreground">
                 {panelState === 'starting' ? 'Starting' : formatStatusLabel(callStatus)}
               </p>
             </div>
           )}
-        </div>
+        </section>
       )}
 
       {panelState === 'idle' && (
-        <div className="flex w-full flex-col gap-3 rounded-2xl border border-border bg-card/70 px-4 py-5">
-          <p className="font-mono text-sm leading-relaxed text-foreground">
+        <section aria-labelledby="start-monitor-heading" className="rounded-2xl border border-border bg-card/70 px-4 py-5">
+          <h2 id="start-monitor-heading" className="font-sans text-xl font-semibold text-foreground">
+            Start silent monitor
+          </h2>
+          <p className="mt-2 font-sans text-lg leading-relaxed text-foreground">
             Tap once to start silent coaching on suspicious calls.
           </p>
           <Button
             onClick={handleStartMonitor}
             size="lg"
-            className="h-14 w-full bg-primary font-mono text-sm font-semibold uppercase tracking-widest text-primary-foreground hover:bg-primary/90"
+            style={{ minHeight: PRIMARY_TAP_TARGET, fontSize: BASE_TEXT_SIZE }}
+            className="mt-4 w-full bg-primary font-sans font-semibold text-primary-foreground hover:bg-primary/90"
           >
             <Phone className="mr-2 h-5 w-5" />
-            Start Silent Monitor
+            Start silent monitor
           </Button>
-          <p className="font-mono text-xs text-muted-foreground">
+          <p className="mt-3 font-sans text-base text-muted-foreground">
             Keep this screen open. Instructions update in real time.
           </p>
-        </div>
+        </section>
       )}
 
       {panelState === 'starting' && (
-        <div className="flex w-full flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-8">
+        <section
+          role="status"
+          aria-live="polite"
+          className="flex w-full flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-8"
+        >
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="font-mono text-sm uppercase tracking-widest text-muted-foreground">Starting monitor...</p>
-          <p className="text-center font-mono text-xs text-muted-foreground">
+          <h2 className="text-center font-sans text-xl font-semibold text-foreground">Starting monitor</h2>
+          <p className="text-center font-sans text-base text-muted-foreground">
             Keep this page open while the call connects.
           </p>
-        </div>
+        </section>
       )}
 
       {(panelState === 'live' || panelState === 'ended') && (
         <div className="flex w-full flex-col gap-3">
           {showPreConnectStatusCard && (
-            <div className="rounded-2xl border border-border bg-card/80 px-4 py-3">
+            <section aria-live="polite" className="rounded-2xl border border-border bg-card/80 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">
-                  {formatStatusLabel(callStatus)}
-                </p>
-                <p className="font-mono text-xs text-muted-foreground">Updated {formatTime(lastUpdated)}</p>
+                <h2 className="font-sans text-base font-semibold text-foreground">{formatStatusLabel(callStatus)}</h2>
+                <p className="font-sans text-sm text-muted-foreground">Updated {formatTime(lastUpdated)}</p>
               </div>
-              <p className="mt-2 font-mono text-xs text-muted-foreground">
-                Silent mode: {assistantMuted ? 'on' : 'starting'}
+              <p className="mt-2 font-sans text-base text-muted-foreground">
+                Silent mode: {assistantMuted ? 'On' : 'Starting'}
               </p>
               {analyzing && (
-                <p className="mt-1 font-mono text-xs text-muted-foreground">
-                  Reading the latest part of the call...
+                <p className="mt-1 font-sans text-base text-muted-foreground">
+                  Reading the latest part of the call.
                 </p>
               )}
-              {caseNote && <p className="mt-2 font-mono text-sm text-foreground">{caseNote}</p>}
-            </div>
+              {caseNote && <p className="mt-2 font-sans text-base text-foreground">{caseNote}</p>}
+            </section>
           )}
 
           {!showPreConnectStatusCard && (analyzing || caseNote) && (
-            <div className="px-1">
+            <section className="px-1" aria-live="polite">
               {analyzing && (
-                <p className="font-mono text-xs text-muted-foreground">Reading the latest part of the call...</p>
+                <p className="font-sans text-base text-muted-foreground">
+                  Reading the latest part of the call.
+                </p>
               )}
-              {caseNote && <p className="mt-1 font-mono text-sm text-foreground">{caseNote}</p>}
-            </div>
+              {caseNote && <p className="mt-1 font-sans text-base text-foreground">{caseNote}</p>}
+            </section>
           )}
 
-          <div className="rounded-2xl border border-primary/40 bg-primary/10 px-4 py-4">
-            <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">What To Do</p>
-            <div className="mt-3 flex flex-col gap-2">
+          <section className="rounded-2xl border border-primary/40 bg-primary/10 px-4 py-4">
+            <h2 className="font-sans text-lg font-semibold text-foreground">What to do now</h2>
+            <ol className="mt-3 flex list-none flex-col gap-2">
               {actionItems.map((item, index) => (
-                <div
+                <li
                   key={`${item}-${index}`}
-                  className={`flex items-start gap-3 rounded-xl border px-3 py-2 ${
+                  className={`flex items-start gap-3 rounded-xl border px-3 py-3 ${
                     index === 0
                       ? 'border-primary/50 bg-primary/15'
                       : 'border-border/80 bg-card/60'
                   }`}
                 >
                   <span
-                    className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full font-mono text-xs ${
+                    className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-sans text-sm font-semibold ${
                       index === 0
                         ? 'bg-primary text-primary-foreground'
-                        : 'bg-secondary text-muted-foreground'
+                        : 'bg-secondary text-foreground'
                     }`}
                   >
                     {index + 1}
                   </span>
                   <p
-                    className={`font-mono leading-relaxed ${
-                      index === 0 ? 'text-base text-foreground' : 'text-sm text-muted-foreground'
+                    className={`font-sans leading-relaxed ${
+                      index === 0 ? 'text-lg text-foreground' : 'text-base text-muted-foreground'
                     }`}
                   >
                     {item}
                   </p>
-                </div>
+                </li>
               ))}
-            </div>
-          </div>
+            </ol>
+          </section>
 
-          <div className="rounded-2xl border border-border bg-card px-3 py-3">
-            <p className="px-1 font-mono text-xs uppercase tracking-widest text-muted-foreground">Live Transcript</p>
+          <section className="rounded-2xl border border-border bg-card px-3 py-3">
+            <h2 className="px-1 font-sans text-lg font-semibold text-foreground">Live transcript</h2>
+            <p className="mt-1 px-1 font-sans text-sm text-muted-foreground">New lines will appear automatically.</p>
             <div
               ref={transcriptViewportRef}
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions text"
+              aria-atomic="false"
+              aria-label="Live call transcript"
+              tabIndex={0}
               className="mt-3 flex h-[44dvh] min-h-[280px] flex-col gap-2 overflow-y-auto px-1 pb-1"
             >
               {transcript.length === 0 && (
-                <p className="mt-2 text-center font-mono text-sm text-muted-foreground">
-                  Waiting for live transcript...
+                <p className="mt-2 text-center font-sans text-base text-muted-foreground">
+                  Waiting for live transcript.
                 </p>
               )}
               {transcript.map((line) => (
-                <div
+                <article
                   key={line.id}
+                  aria-label={`${formatSpeakerLabel(line.speaker)} said`}
                   className={`mx-auto w-fit max-w-[95%] rounded-2xl border px-4 py-3 transition-colors duration-150 ${
                     line.isFinal
                       ? 'border-border/70 bg-secondary/80'
                       : 'border-primary/30 bg-primary/5'
                   }`}
                 >
+                  <p className="mb-1 font-sans text-xs font-semibold text-muted-foreground">
+                    {formatSpeakerLabel(line.speaker)}
+                  </p>
                   <p
-                    className={`font-mono text-[15px] leading-relaxed whitespace-pre-wrap break-words ${
+                    className={`font-sans text-[17px] leading-relaxed whitespace-pre-wrap break-words ${
                       line.isFinal ? 'text-foreground' : 'italic text-foreground/90'
                     }`}
                   >
                     {line.text}
                   </p>
-                </div>
+                </article>
               ))}
             </div>
-          </div>
+          </section>
 
-          <div className={`rounded-2xl border px-4 py-4 ${riskTheme.card}`}>
+          <section className={`rounded-2xl border px-4 py-4 ${riskTheme.card}`}>
             <div className="flex items-center justify-between">
-              <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">Scam Probability</p>
-              <riskTheme.Icon className={`h-4 w-4 ${riskTheme.label}`} />
+              <h2 className="font-sans text-lg font-semibold text-foreground">Scam probability</h2>
+              <riskTheme.Icon aria-hidden="true" className={`h-5 w-5 ${riskTheme.label}`} />
             </div>
             <div className="mt-2 flex items-end justify-between gap-3">
-              <p className={`font-mono text-3xl font-semibold ${riskTheme.label}`}>{advice.riskScore}%</p>
-              <p className="font-mono text-xs uppercase tracking-widest text-muted-foreground">{advice.riskLevel}</p>
+              <p className={`font-sans text-4xl font-semibold ${riskTheme.label}`}>{advice.riskScore}%</p>
+              <p className="font-sans text-base font-medium text-foreground">{advice.riskLevel} risk</p>
             </div>
-            <div className="mt-3 h-2 w-full rounded-full bg-background/70">
+            <div
+              className="mt-3 h-2 w-full rounded-full bg-background/70"
+              role="progressbar"
+              aria-label="Scam probability"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={advice.riskScore}
+            >
               <div
                 className={`h-2 rounded-full transition-[width] duration-700 ease-out ${riskTheme.meter}`}
                 style={{ width: `${advice.riskScore}%` }}
               />
             </div>
-            <p className="mt-3 font-mono text-sm leading-relaxed text-foreground">{advice.feedback}</p>
-          </div>
+            <p className="mt-2 font-sans text-base text-muted-foreground">
+              Scam probability {advice.riskScore} percent, {advice.riskLevel} risk.
+            </p>
+            <p className="mt-3 font-sans text-base leading-relaxed text-foreground">{advice.feedback}</p>
+          </section>
 
           <Button
             onClick={resetSession}
             variant="outline"
-            size="sm"
-            className="font-mono text-xs uppercase tracking-widest"
+            style={{ minHeight: PRIMARY_TAP_TARGET, fontSize: SECONDARY_TEXT_SIZE }}
+            className="font-sans font-semibold"
           >
-            <RotateCcw className="mr-2 h-3 w-3" />
-            New Session
+            <RotateCcw className="mr-2 h-4 w-4" />
+            New session
           </Button>
         </div>
       )}
 
       {panelState === 'error' && (
-        <div className="flex w-full flex-col items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-6 py-8">
+        <section
+          role="alert"
+          aria-live="assertive"
+          className="flex w-full flex-col items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/5 px-6 py-8"
+        >
           <AlertTriangle className="h-8 w-8 text-destructive" />
-          <p className="font-mono text-sm font-semibold uppercase tracking-widest text-destructive">Session Failed</p>
-          <p className="text-center font-mono text-sm text-foreground">{error || 'Unable to start session.'}</p>
+          <h2 className="text-center font-sans text-xl font-semibold text-destructive">Session failed</h2>
+          <p className="text-center font-sans text-base text-foreground">{error || 'Unable to start session.'}</p>
           <Button
             onClick={handleStartMonitor}
             variant="outline"
-            size="sm"
-            className="mt-2 font-mono text-xs uppercase tracking-widest"
+            style={{ minHeight: PRIMARY_TAP_TARGET, fontSize: SECONDARY_TEXT_SIZE }}
+            className="mt-2 font-sans font-semibold"
           >
-            <RotateCcw className="mr-2 h-3 w-3" />
+            <RotateCcw className="mr-2 h-4 w-4" />
             Retry
           </Button>
-        </div>
+        </section>
       )}
 
       {caseNote && panelState === 'idle' && (
-        <div className="w-full rounded-xl border border-border bg-card px-4 py-3">
-          <p className="font-mono text-sm text-foreground">{caseNote}</p>
-        </div>
+        <section className="w-full rounded-xl border border-border bg-card px-4 py-3">
+          <p className="font-sans text-base text-foreground">{caseNote}</p>
+        </section>
       )}
 
       <Link
         href={`/t/${slug}/setup`}
-        className="self-center font-mono text-xs uppercase tracking-widest text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
+        style={{ minHeight: PRIMARY_TAP_TARGET, fontSize: SECONDARY_TEXT_SIZE }}
+        className="self-center rounded-md px-3 py-3 font-sans font-semibold text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
       >
         Change number
       </Link>
-    </div>
+    </section>
   )
 }

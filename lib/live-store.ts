@@ -8,6 +8,7 @@ import {
   getRiskLevel,
   normalizeSessionStatus,
 } from '@/lib/live-types'
+import { mergeIncrementalTranscriptText, normalizeTranscriptText } from '@/lib/transcript-merge'
 
 type LiveCallRow = {
   call_sid: string
@@ -23,6 +24,13 @@ type LiveCallRow = {
 
 type TranscriptRow = {
   id: number
+  speaker: string
+  text: string
+  timestamp_ms: number
+  is_final: boolean
+}
+
+type TranscriptChunkUpdateRow = {
   speaker: string
   text: string
   timestamp_ms: number
@@ -218,17 +226,47 @@ export async function appendTranscriptChunk(params: {
   isFinal: boolean
   timestamp: number
 }) {
-  const content = params.text.trim()
+  const content = normalizeTranscriptText(params.text)
   if (!content) return
 
   const supabase = createAdminClient()
+  const { data: existingRow, error: existingError } = await supabase
+    .from('live_transcript_chunks')
+    .select('speaker, text, timestamp_ms, is_final')
+    .eq('call_sid', params.callSid)
+    .eq('source_event_id', params.sourceEventId)
+    .maybeSingle()
+
+  if (existingError) {
+    throw new Error(`Failed to load existing transcript chunk: ${existingError.message}`)
+  }
+
+  const existing = (existingRow as TranscriptChunkUpdateRow | null) ?? null
+  const mergedText =
+    existing && typeof existing.text === 'string'
+      ? mergeIncrementalTranscriptText(existing.text, content, {
+          isFinal: params.isFinal,
+        })
+      : content
+  const existingSpeaker =
+    existing && typeof existing.speaker === 'string'
+      ? normalizeSpeaker(toSpeaker(existing.speaker))
+      : 'unknown'
+  const mergedSpeaker =
+    normalizeSpeaker(params.speaker) === 'unknown' ? existingSpeaker : normalizeSpeaker(params.speaker)
+  const mergedIsFinal = Boolean(params.isFinal || existing?.is_final)
+  const mergedTimestamp = Math.max(
+    parseTimestampMs(existing?.timestamp_ms ?? 0),
+    parseTimestampMs(params.timestamp),
+  )
+
   const payload = {
     call_sid: params.callSid,
     source_event_id: params.sourceEventId,
-    speaker: normalizeSpeaker(params.speaker),
-    text: content,
-    is_final: params.isFinal,
-    timestamp_ms: params.timestamp,
+    speaker: mergedSpeaker,
+    text: mergedText,
+    is_final: mergedIsFinal,
+    timestamp_ms: mergedTimestamp,
   }
 
   const { error } = await supabase
