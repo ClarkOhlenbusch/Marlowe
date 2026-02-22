@@ -14,7 +14,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { usePrefersReducedMotion } from '@/hooks/use-prefers-reduced-motion'
 import { BASE_TEXT_SIZE, PRIMARY_TAP_TARGET, SECONDARY_TEXT_SIZE } from '@/lib/a11y'
-import { BRAND_NAME } from '@/lib/brand'
+import { BRAND_CASE_NAME } from '@/lib/brand'
 import { createClient } from '@/lib/supabase/client'
 import { mergeIncrementalTranscriptText, normalizeTranscriptText } from '@/lib/transcript-merge'
 
@@ -378,6 +378,7 @@ export function CasePanel({
   const showProtectedNumberCard =
     panelState === 'idle' || panelState === 'starting' || (panelState === 'live' && !callConnected)
   const showPreConnectStatusCard = panelState === 'ended' || !callConnected
+  const panelHeading = tenantName?.trim() || BRAND_CASE_NAME
 
   const announce = useCallback((priority: LiveAnnouncement['priority'], text: string) => {
     const trimmed = text.trim()
@@ -805,12 +806,10 @@ export function CasePanel({
         {assertiveAnnouncement?.text ?? ''}
       </p>
 
-      <header className="flex flex-col gap-2">
-        <p className="font-sans text-sm font-medium text-muted-foreground">{BRAND_NAME}</p>
+      <header className="flex flex-col items-center gap-1 text-center">
         <h1 id="live-coach-title" className="font-sans text-2xl font-semibold text-foreground">
-          Live scam coach
+          {panelHeading}
         </h1>
-        {tenantName && <p className="font-sans text-base text-muted-foreground">{tenantName}</p>}
       </header>
 
       {showProtectedNumberCard && (
@@ -962,9 +961,6 @@ export function CasePanel({
                       : 'border-primary/30 bg-primary/5'
                   }`}
                 >
-                  <p className="mb-1 font-sans text-xs font-semibold text-muted-foreground">
-                    {formatSpeakerLabel(line.speaker)}
-                  </p>
                   <p
                     className={`font-sans text-[17px] leading-relaxed whitespace-pre-wrap break-words ${
                       line.isFinal ? 'text-foreground' : 'italic text-foreground/90'
