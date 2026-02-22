@@ -19,9 +19,9 @@
 ---
 
 <p align="center">
-  <img src="./public/marlowe_phone_1_update.png" alt="Marlowe app phone screenshot 1" width="350" />
-  &nbsp;&nbsp;&nbsp;
-  <img src="./public/marlowe_phone_2.png" alt="Marlowe app phone screenshot 2" width="350" />
+  <img src="./public/marlowe_phone_1_update.png" alt="Marlowe app phone screenshot 1" width="350" height="700" />
+  &nbsp;&nbsp;
+  <img src="./public/marlowe_phone_2.png" alt="Marlowe app phone screenshot 2" width="350" height="700" />
 </p>
 
 ---
