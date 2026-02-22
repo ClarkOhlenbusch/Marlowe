@@ -39,6 +39,7 @@ Scammers use **urgency, fear, and isolation** to prevent victims from pausing to
 ## The Solution
 
 We built **Marlowe**, a **live scam detective** that works during the call itself, helping users pause before they send money, share credentials, or comply with threats. 
+
 <img src="./public/marlowe_movie_1969.jpg" alt="Marlowe (1969) poster inspiration" width="90" /><br><sub><em>Inspiration: Marlowe (1969)</em></sub> 
 
 1. **Live iPhone call transcription** — We orchestrate a Twilio-powered silent monitor call that bridges into the user's active conversation. Twilio's `<Transcription>` streams both sides of the call (`track="both_tracks"`) as partial and final transcript events via webhooks — giving us real-time access to audio that iOS normally locks down entirely.
