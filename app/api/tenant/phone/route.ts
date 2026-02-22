@@ -64,13 +64,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    const overrideToken = process.env.TENANT_ADMIN_OVERRIDE_TOKEN
+    const overrideToken = process.env.TENANT_ADMIN_OVERRIDE_TOKEN?.trim()
     const providedOverride = request.headers.get('x-admin-override-token')
-    const hasValidOverride = !!overrideToken && providedOverride === overrideToken
+    const phoneChangesLocked = Boolean(overrideToken)
+    const hasValidOverride = phoneChangesLocked && providedOverride === overrideToken
 
-    if (tenant.phone_number && !hasValidOverride) {
+    if (tenant.phone_number && phoneChangesLocked && !hasValidOverride) {
       return NextResponse.json(
-        { ok: false, error: 'Phone number is already configured. Contact support to change it.' },
+        { ok: false, error: 'Phone number changes are locked. Contact support to change it.' },
         { status: 409 }
       )
     }
