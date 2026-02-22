@@ -37,7 +37,9 @@ Scammers use **urgency, fear, and isolation** to prevent victims from pausing to
 ---
 
 ## The Solution
-<img src="./public/marlowe_movie_1969.jpg" alt="Marlowe (1969) poster inspiration" width="110" align="right" />
+|  |  |
+|---|---|
+| We built Marlowe, a **live telephony feedback loop** that works on real phone calls, including iPhone calls that are normally completely gated from third-party access. | <img src="./public/marlowe_movie_1969.jpg" alt="Marlowe (1969) poster inspiration" width="90" /><br><sub><em>Name inspiration: Marlowe (1969)</em></sub> |
 We built Marlowe, a **live telephony feedback loop** that works on real phone calls, including iPhone calls that are normally completely gated from third-party access.
 
 Here's what we actually pulled off this weekend:
