@@ -16,6 +16,56 @@ function escapeXml(value: string): string {
     .replaceAll('>', '&gt;')
 }
 
+type TranscriptionAttrs = Record<string, string>
+
+function serializeXmlAttrs(attrs: TranscriptionAttrs): string {
+  return Object.entries(attrs)
+    .map(([key, value]) => `${key}="${escapeXml(value)}"`)
+    .join(' ')
+}
+
+function buildBaselineTranscriptionAttrs(webhookUrl: string): TranscriptionAttrs {
+  return {
+    statusCallbackUrl: webhookUrl,
+    track: 'both_tracks',
+    partialResults: 'true',
+  }
+}
+
+function buildDeepgramNova3TranscriptionAttrs(webhookUrl: string): TranscriptionAttrs {
+  return {
+    ...buildBaselineTranscriptionAttrs(webhookUrl),
+    transcriptionEngine: 'deepgram',
+    speechModel: 'nova-3',
+    languageCode: 'en-US',
+    inboundTrackLabel: 'caller',
+    outboundTrackLabel: 'other',
+    enableProviderData: 'true',
+  }
+}
+
+function isValidTranscriptionAttrs(attrs: TranscriptionAttrs): boolean {
+  const requiredKeys = ['statusCallbackUrl', 'track', 'partialResults'] as const
+  const hasRequired = requiredKeys.every((key) => {
+    const value = attrs[key]
+    return typeof value === 'string' && value.trim().length > 0
+  })
+
+  if (!hasRequired) return false
+  return Object.values(attrs).every((value) => typeof value === 'string' && value.trim().length > 0)
+}
+
+function buildTranscriptionXml(webhookUrl: string): string {
+  const deepgramAttrs = buildDeepgramNova3TranscriptionAttrs(webhookUrl)
+
+  if (isValidTranscriptionAttrs(deepgramAttrs)) {
+    return `<Transcription ${serializeXmlAttrs(deepgramAttrs)} />`
+  }
+
+  const baselineAttrs = buildBaselineTranscriptionAttrs(webhookUrl)
+  return `<Transcription ${serializeXmlAttrs(baselineAttrs)} />`
+}
+
 function buildTwiml(request: NextRequest): string {
   const slug = request.nextUrl.searchParams.get('slug')
   const publicBaseUrl = getPublicBaseUrl(request)
@@ -31,7 +81,7 @@ function buildTwiml(request: NextRequest): string {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<Response>',
-    `  <Start><Transcription statusCallbackUrl="${escapeXml(webhookUrl.toString())}" track="both_tracks" partialResults="true" /></Start>`,
+    `  <Start>${buildTranscriptionXml(webhookUrl.toString())}</Start>`,
     '  <Pause length="60"/>',
     `  <Redirect method="POST">${escapeXml(redirectUrl.toString())}</Redirect>`,
     '</Response>',

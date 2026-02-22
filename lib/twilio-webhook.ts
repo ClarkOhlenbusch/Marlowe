@@ -223,7 +223,15 @@ function parseTimestamp(value: string | null): number {
 
 function parseSpeaker(track: string | null): TranscriptSpeaker {
   if (!track) return 'unknown'
-  const normalized = track.toLowerCase()
+  const normalized = track.toLowerCase().trim()
+
+  if (normalized === 'caller' || normalized === 'inbound_track') {
+    return 'caller'
+  }
+
+  if (normalized === 'other' || normalized === 'outbound_track') {
+    return 'other'
+  }
 
   if (
     normalized.includes('caller') ||
