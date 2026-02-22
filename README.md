@@ -9,7 +9,10 @@
 </p>
 
 <p align="center">
-  <sub>Built for the <strong>Security Track</strong> at the (2026 Jumbo Hackathon)[https://jumbohack.org/].</sub>
+  <sub>
+  Built for the <strong>Cybersecurity Track</strong> at the
+  <a href="https://jumbohack.org/">2026 JumboHack</a>.
+</sub>
 </p>
 
 <p align="center">
