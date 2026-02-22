@@ -34,7 +34,7 @@ AI-enabled scams are amplifying already widespread fraud:
 - **14,190 government impersonation scam victims** with over $394M in losses in 2023 ([FBI](https://www.fbi.gov/contact-us/field-offices/portland/news/fbi-warns-public-to-beware-of-scammers-impersonating-fbi-agents-and-other-government-officials))
 - Older adults are disproportionately harmed
 
-Scammers use **urgency, fear, and isolation** to prevent victims from pausing to think. Marlowe gives people a **live second opinion** during the call itself — before they send money, share credentials, or comply with threats.
+Scammers use **urgency, fear, and isolation** to prevent victims from pausing to think. 
 
 ---
 
