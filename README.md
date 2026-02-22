@@ -38,7 +38,18 @@ Scammers use **urgency, fear, and isolation** to prevent victims from pausing to
 
 ## The Solution
 
-We built **Marlowe**, a **live scam detective** that works during the call itself, helping users pause before they send money, share credentials, or comply with threats. | <img src="./public/marlowe_movie_1969.jpg" alt="Marlowe (1969) poster inspiration" width="90" /><br><sub><em>Name inspiration: Marlowe (1969)</em></sub> 
+<table>
+  <tr>
+    <td>
+      We built Marlowe, a <strong>live telephony feedback loop</strong> that works on real phone calls,
+      including iPhone calls that are normally completely gated from third-party access.
+    </td>
+    <td align="center" width="140">
+      <img src="./public/marlowe_movie_1969.jpg" alt="Marlowe (1969) poster inspiration" width="90" /><br/>
+      <sub><em>Name inspiration: Marlowe (1969)</em></sub>
+    </td>
+  </tr>
+</table>
 
 Here's what we actually pulled off this weekend:
 
